@@ -100,6 +100,7 @@ Configuration options:
   --enable-runtime-cpudetect detect cpu capabilities at runtime (bigger binary)
   --enable-gray            enable full grayscale support (slower color)
   --disable-swscale-alpha  disable alpha channel support in swscale
+  --disable-all            disable building components, libraries and programs
 
 Program options:
   --disable-programs       do not build command line programs
@@ -119,15 +120,15 @@ Component options:
   --disable-avresample     disable libavresample build [no]
   --disable-pthreads       disable pthreads [auto]
   --disable-w32threads     disable Win32 threads [auto]
-  --enable-x11grab         enable X11 grabbing [no]
   --disable-network        disable network support [no]
   --disable-dct            disable DCT code
-  --disable-dwt            disable DWT code
   --disable-lsp            disable LSP code
   --disable-lzo            disable LZO decoder code
   --disable-mdct           disable MDCT code
   --disable-rdft           disable RDFT code
   --disable-fft            disable FFT code
+
+Hardware accelerators:
   --enable-dxva2           enable DXVA2 code
   --enable-vaapi           enable VAAPI code
   --enable-vda             enable VDA code
@@ -197,12 +198,13 @@ External library support:
   --enable-libvo-aacenc    enable AAC encoding via libvo-aacenc [no]
   --enable-libvo-amrwbenc  enable AMR-WB encoding via libvo-amrwbenc [no]
   --enable-libvorbis       enable Vorbis encoding via libvorbis [no]
-  --enable-libvpx          enable VP8 de/encoding via libvpx [no]
+  --enable-libvpx          enable VP8 and VP9 de/encoding via libvpx [no]
   --enable-libx264         enable H.264 encoding via x264 [no]
   --enable-libxavs         enable AVS encoding via xavs [no]
   --enable-libxvid         enable Xvid encoding via xvidcore,
                            native MPEG-4/Xvid encoder exists [no]
   --enable-openssl         enable openssl [no]
+  --enable-x11grab         enable X11 grabbing [no]
   --enable-zlib            enable zlib [autodetect]
 
 Advanced options (experts only):
@@ -222,6 +224,7 @@ Advanced options (experts only):
   --ld=LD                  use linker LD
   --host-cc=HOSTCC         use host C compiler HOSTCC
   --host-cflags=HCFLAGS    use HCFLAGS when compiling for host
+  --host-cppflags=HCPPFLAGS use HCPPFLAGS when compiling for host
   --host-ld=HOSTLD         use host linker HOSTLD
   --host-ldflags=HLDFLAGS  use HLDFLAGS when linking for host
   --host-libs=HLIBS        use libs HLIBS when linking for host
@@ -405,14 +408,18 @@ set_weak(){
     done
 }
 
+sanitize_var_name(){
+    echo $@ | sed 's/[^A-Za-z0-9_]/_/g'
+}
+
 set_safe(){
     var=$1
     shift
-    eval $(echo "$var" | sed 's/[^A-Za-z0-9_]/_/g')='$*'
+    eval $(sanitize_var_name "$var")='$*'
 }
 
 get_safe(){
-    eval echo \$$(echo "$1" | sed 's/[^A-Za-z0-9_]/_/g')
+    eval echo \$$(sanitize_var_name "$1")
 }
 
 pushvar(){
@@ -535,12 +542,13 @@ is_in(){
     return 1
 }
 
-check_deps(){
+do_check_deps(){
     for cfg; do
         cfg="${cfg#!}"
         enabled ${cfg}_checking && die "Circular dependency for $cfg."
         disabled ${cfg}_checking && continue
         enable ${cfg}_checking
+        append allopts $cfg
 
         eval dep_all="\$${cfg}_deps"
         eval dep_any="\$${cfg}_deps_any"
@@ -550,7 +558,7 @@ check_deps(){
         eval dep_ifn="\$${cfg}_if_any"
 
         pushvar cfg dep_all dep_any dep_sel dep_sgs dep_ifa dep_ifn
-        check_deps $dep_all $dep_any $dep_sel $dep_sgs $dep_ifa $dep_ifn
+        do_check_deps $dep_all $dep_any $dep_sel $dep_sgs $dep_ifa $dep_ifn
         popvar cfg dep_all dep_any dep_sel dep_sgs dep_ifa dep_ifn
 
         [ -n "$dep_ifa" ] && { enabled_all $dep_ifa && enable_weak $cfg; }
@@ -560,13 +568,23 @@ check_deps(){
         disabled_any $dep_sel && disable $cfg
 
         if enabled $cfg; then
-            eval dep_extralibs="\$${cfg}_extralibs"
-            test -n "$dep_extralibs" && add_extralibs $dep_extralibs
             enable_deep $dep_sel
             enable_deep_weak $dep_sgs
         fi
 
         disable ${cfg}_checking
+    done
+}
+
+check_deps(){
+    unset allopts
+
+    do_check_deps "$@"
+
+    for cfg in $allopts; do
+        enabled $cfg || continue
+        eval dep_extralibs="\$${cfg}_extralibs"
+        test -n "$dep_extralibs" && add_extralibs $dep_extralibs
     done
 }
 
@@ -633,6 +651,10 @@ add_ldflags(){
 
 add_extralibs(){
     prepend extralibs $($ldflags_filter "$@")
+}
+
+add_host_cppflags(){
+    append host_cppflags "$@"
 }
 
 add_host_cflags(){
@@ -905,7 +927,7 @@ check_type(){
 }
 
 check_struct(){
-    log check_type "$@"
+    log check_struct "$@"
     headers=$1
     struct=$2
     member=$3
@@ -913,6 +935,16 @@ check_struct(){
     disable_safe "${struct}_${member}"
     check_code cc "$headers" "const void *p = &(($struct *)0)->$member" "$@" &&
         enable_safe "${struct}_${member}"
+}
+
+check_builtin(){
+    log check_builtin "$@"
+    name=$1
+    headers=$2
+    builtin=$3
+    shift 3
+    disable "$name"
+    check_code ld "$headers" "$builtin" "$@" && enable "$name"
 }
 
 require(){
@@ -947,6 +979,13 @@ check_host_cc(){
     cat > $TMPC
     log_file $TMPC
     check_cmd $host_cc $host_cflags "$@" $HOSTCC_C $(hostcc_o $TMPO) $TMPC
+}
+
+check_host_cppflags(){
+    log check_host_cppflags "$@"
+    check_host_cc "$@" <<EOF && append host_cppflags "$@"
+int x;
+EOF
 }
 
 check_host_cflags(){
@@ -986,39 +1025,11 @@ COMPONENT_LIST="
     protocols
 "
 
-LIBRARY_LIST="
-    avcodec
-    avdevice
-    avfilter
-    avformat
-    avresample
-    avutil
-    swscale
-"
-
-PROGRAM_LIST="
-    avconv
-    avplay
-    avprobe
-    avserver
-"
-
-CONFIG_LIST="
-    $COMPONENT_LIST
-    $LIBRARY_LIST
-    $PROGRAM_LIST
+EXTERNAL_LIBRARY_LIST="
     avisynth
     bzlib
-    dct
-    doc
-    dwt
-    dxva2
-    fft
     frei0r
     gnutls
-    gpl
-    gray
-    hardcoded_tables
     libcdio
     libdc1394
     libfaac
@@ -1044,13 +1055,52 @@ CONFIG_LIST="
     libx264
     libxavs
     libxvid
+    openssl
+    x11grab
+    zlib
+"
+
+HWACCEL_LIST="
+    dxva2
+    vaapi
+    vda
+    vdpau
+"
+LIBRARY_LIST="
+    avcodec
+    avdevice
+    avfilter
+    avformat
+    avresample
+    avutil
+    swscale
+"
+
+PROGRAM_LIST="
+    avconv
+    avplay
+    avprobe
+    avserver
+"
+
+CONFIG_LIST="
+    $COMPONENT_LIST
+    $EXTERNAL_LIBRARY_LIST
+    $HWACCEL_LIST
+    $LIBRARY_LIST
+    $PROGRAM_LIST
+    dct
+    doc
+    fft
+    gpl
+    gray
+    hardcoded_tables
     lsp
     lzo
     mdct
     memalign_hack
     network
     nonfree
-    openssl
     pic
     rdft
     runtime_cpudetect
@@ -1061,13 +1111,8 @@ CONFIG_LIST="
     static
     swscale_alpha
     thumb
-    vaapi
-    vda
-    vdpau
     version3
     xmm_clobber_test
-    x11grab
-    zlib
 "
 
 THREADS_LIST='
@@ -1189,6 +1234,8 @@ HAVE_LIST="
     asm_mod_y
     attribute_may_alias
     attribute_packed
+    cdio_paranoia_h
+    cdio_paranoia_paranoia_h
     closesocket
     cmov
     CommandLineToArgvW
@@ -1223,6 +1270,7 @@ HAVE_LIST="
     getservbyport
     gettimeofday
     gnu_as
+    gsm_h
     ibm_asm
     inet_aton
     io_h
@@ -1237,9 +1285,11 @@ HAVE_LIST="
     loongson
     machine_ioctl_bt848_h
     machine_ioctl_meteor_h
+    machine_rw_barrier
     malloc_h
     MapViewOfFile
     memalign
+    MemoryBarrier
     mkstemp
     mm_empty
     mmap
@@ -1251,7 +1301,6 @@ HAVE_LIST="
     rdtsc
     sched_getaffinity
     sdl
-    sdl_video_size
     SetConsoleTextAttribute
     setmode
     setrlimit
@@ -1274,6 +1323,7 @@ HAVE_LIST="
     struct_v4l2_frmivalenum_discrete
     symver_asm_label
     symver_gnu_asm
+    sync_val_compare_and_swap
     sysconf
     sysctl
     sys_mman_h
@@ -1294,10 +1344,11 @@ HAVE_LIST="
     xmm_clobbers
 "
 
-# options emitted with CONFIG_ prefix but not available on command line
+# options emitted with CONFIG_ prefix but not available on the command line
 CONFIG_EXTRA="
     aandcttables
     ac3dsp
+    audio_frame_queue
     error_resilience
     gcrypt
     golomb
@@ -1316,7 +1367,9 @@ CONFIG_EXTRA="
     nettle
     rangecoder
     rtpdec
+    rtpenc_chain
     sinewin
+    videodsp
     vp3dsp
 "
 
@@ -1379,6 +1432,7 @@ CMDLINE_SET="
 
 CMDLINE_APPEND="
     extra_cflags
+    host_cppflags
 "
 
 # code dependency declarations
@@ -1443,11 +1497,12 @@ mdct_select="fft"
 rdft_select="fft"
 mpegaudio_select="mpegaudiodsp"
 mpegaudiodsp_select="dct"
+mpegvideo_select="videodsp"
 mpegvideoenc_select="mpegvideo"
 
-# decoders / encoders / hardware accelerators
+# decoders / encoders
 aac_decoder_select="mdct sinewin"
-aac_encoder_select="mdct sinewin"
+aac_encoder_select="audio_frame_queue mdct sinewin"
 aac_latm_decoder_select="aac_decoder aac_latm_parser"
 ac3_decoder_select="mdct ac3dsp ac3_parser"
 ac3_encoder_select="mdct ac3dsp"
@@ -1459,7 +1514,7 @@ atrac1_decoder_select="mdct sinewin"
 atrac3_decoder_select="mdct"
 binkaudio_dct_decoder_select="mdct rdft dct sinewin"
 binkaudio_rdft_decoder_select="mdct rdft sinewin"
-cavs_decoder_select="golomb mpegvideo"
+cavs_decoder_select="golomb h264chroma mpegvideo videodsp"
 comfortnoise_encoder_select="lpc"
 cook_decoder_select="mdct sinewin"
 cscd_decoder_select="lzo"
@@ -1469,9 +1524,9 @@ dnxhd_encoder_select="aandcttables mpegvideoenc"
 dxa_decoder_select="zlib"
 eac3_decoder_select="ac3_decoder"
 eac3_encoder_select="ac3_encoder"
-eamad_decoder_select="aandcttables error_resilience mpegvideo"
+eamad_decoder_select="aandcttables mpegvideo"
 eatgq_decoder_select="aandcttables"
-eatqi_decoder_select="aandcttables error_resilience mpegvideo"
+eatqi_decoder_select="aandcttables mpegvideo"
 ffv1_decoder_select="golomb rangecoder"
 ffv1_encoder_select="rangecoder"
 ffvhuff_encoder_select="huffman"
@@ -1486,16 +1541,10 @@ fraps_decoder_select="huffman"
 h261_decoder_select="error_resilience mpegvideo"
 h261_encoder_select="aandcttables mpegvideoenc"
 h263_decoder_select="error_resilience h263_parser mpegvideo"
-h263_encoder_select="aandcttables error_resilience mpegvideoenc"
-h263_vaapi_hwaccel_select="vaapi h263_decoder"
+h263_encoder_select="aandcttables mpegvideoenc"
 h263i_decoder_select="h263_decoder"
 h263p_encoder_select="h263_encoder"
-h264_decoder_select="error_resilience golomb h264chroma h264dsp h264pred h264qpel mpegvideo"
-h264_dxva2_hwaccel_deps="dxva2api_h"
-h264_dxva2_hwaccel_select="dxva2 h264_decoder"
-h264_vaapi_hwaccel_select="vaapi h264_decoder"
-h264_vda_hwaccel_select="vda h264_decoder"
-h264_vdpau_decoder_select="vdpau h264_decoder"
+h264_decoder_select="error_resilience golomb h264chroma h264dsp h264pred h264qpel videodsp"
 huffyuv_encoder_select="huffman"
 iac_decoder_select="fft mdct sinewin"
 imc_decoder_select="fft mdct sinewin"
@@ -1518,50 +1567,41 @@ mp3on4_decoder_select="mpegaudio"
 mp3on4float_decoder_select="mpegaudio"
 mpc7_decoder_select="mpegaudiodsp"
 mpc8_decoder_select="mpegaudiodsp"
-mpeg_vdpau_decoder_select="vdpau mpegvideo_decoder"
 mpeg_xvmc_decoder_deps="X11_extensions_XvMClib_h"
 mpeg_xvmc_decoder_select="mpegvideo_decoder"
-mpeg1_vdpau_decoder_select="vdpau mpeg1video_decoder"
 mpeg1video_decoder_select="error_resilience mpegvideo"
-mpeg1video_encoder_select="aandcttables error_resilience mpegvideoenc"
-mpeg2_dxva2_hwaccel_deps="dxva2api_h"
-mpeg2_dxva2_hwaccel_select="dxva2 mpeg2video_decoder"
-mpeg2_vaapi_hwaccel_select="vaapi mpeg2video_decoder"
+mpeg1video_encoder_select="aandcttables mpegvideoenc"
 mpeg2video_decoder_select="error_resilience mpegvideo"
-mpeg2video_encoder_select="aandcttables error_resilience mpegvideoenc"
+mpeg2video_encoder_select="aandcttables mpegvideoenc"
 mpeg4_decoder_select="h263_decoder mpeg4video_parser"
 mpeg4_encoder_select="h263_encoder"
-mpeg4_vaapi_hwaccel_select="vaapi mpeg4_decoder"
-mpeg4_vdpau_decoder_select="vdpau mpeg4_decoder"
 msmpeg4v1_decoder_select="h263_decoder"
 msmpeg4v1_encoder_select="h263_encoder"
 msmpeg4v2_decoder_select="h263_decoder"
 msmpeg4v2_encoder_select="h263_encoder"
 msmpeg4v3_decoder_select="h263_decoder"
 msmpeg4v3_encoder_select="h263_encoder"
-mss2_decoder_select="vc1_decoder"
+mss2_decoder_select="error_resilience vc1_decoder"
 nellymoser_decoder_select="mdct sinewin"
-nellymoser_encoder_select="mdct sinewin"
+nellymoser_encoder_select="audio_frame_queue mdct sinewin"
 nuv_decoder_select="lzo"
 png_decoder_select="zlib"
 png_encoder_select="zlib"
 qcelp_decoder_select="lsp"
 qdm2_decoder_select="mdct rdft mpegaudiodsp"
-ra_144_encoder_select="lpc"
+ra_144_encoder_select="audio_frame_queue lpc"
 ralf_decoder_select="golomb"
-rv10_decoder_select="h263_decoder"
+rv10_decoder_select="error_resilience h263_decoder"
 rv10_encoder_select="h263_encoder"
-rv20_decoder_select="h263_decoder"
+rv20_decoder_select="error_resilience h263_decoder"
 rv20_encoder_select="h263_encoder"
-rv30_decoder_select="error_resilience golomb h264chroma h264pred h264qpel mpegvideo"
-rv40_decoder_select="error_resilience golomb h264chroma h264pred h264qpel mpegvideo"
+rv30_decoder_select="error_resilience golomb h264chroma h264pred h264qpel mpegvideo videodsp"
+rv40_decoder_select="error_resilience golomb h264chroma h264pred h264qpel mpegvideo videodsp"
 shorten_decoder_select="golomb"
 sipr_decoder_select="lsp"
-snow_decoder_select="dwt rangecoder"
-snow_encoder_select="aandcttables dwt error_resilience mpegvideoenc rangecoder"
-svq1_decoder_select="error_resilience mpegvideo"
-svq1_encoder_select="aandcttables error_resilience mpegvideoenc"
-svq3_decoder_select="error_resilience golomb h264chroma h264dsp h264pred h264qpel mpegvideo"
+svq1_decoder_select="mpegvideo"
+svq1_encoder_select="aandcttables mpegvideoenc"
+svq3_decoder_select="error_resilience golomb h264chroma h264dsp h264pred h264qpel mpegvideo videodsp"
 svq3_decoder_suggest="zlib"
 theora_decoder_select="vp3_decoder"
 tiff_decoder_suggest="zlib"
@@ -1570,20 +1610,16 @@ truehd_decoder_select="mlp_decoder"
 tscc_decoder_select="zlib"
 twinvq_decoder_select="mdct lsp sinewin"
 utvideo_encoder_select="huffman"
-vc1_decoder_select="h263_decoder h264chroma h264qpel"
-vc1_dxva2_hwaccel_deps="dxva2api_h"
-vc1_dxva2_hwaccel_select="dxva2 vc1_decoder"
-vc1_vaapi_hwaccel_select="vaapi vc1_decoder"
-vc1_vdpau_decoder_select="vdpau vc1_decoder"
+vc1_decoder_select="error_resilience h263_decoder h264chroma h264qpel"
 vc1image_decoder_select="vc1_decoder"
 vorbis_decoder_select="mdct"
 vorbis_encoder_select="mdct"
-vp3_decoder_select="vp3dsp"
-vp5_decoder_select="vp3dsp"
-vp6_decoder_select="huffman vp3dsp"
+vp3_decoder_select="vp3dsp videodsp"
+vp5_decoder_select="h264chroma videodsp vp3dsp"
+vp6_decoder_select="h264chroma huffman videodsp vp3dsp"
 vp6a_decoder_select="vp6_decoder"
 vp6f_decoder_select="vp6_decoder"
-vp8_decoder_select="h264pred h264qpel"
+vp8_decoder_select="h264pred videodsp"
 wmapro_decoder_select="mdct sinewin"
 wmav1_decoder_select="mdct sinewin"
 wmav1_encoder_select="mdct sinewin"
@@ -1592,12 +1628,9 @@ wmav2_encoder_select="mdct sinewin"
 wmavoice_decoder_select="lsp rdft dct mdct sinewin"
 wmv1_decoder_select="h263_decoder"
 wmv1_encoder_select="h263_encoder"
-wmv2_decoder_select="h263_decoder"
+wmv2_decoder_select="h263_decoder videodsp"
 wmv2_encoder_select="h263_encoder"
 wmv3_decoder_select="vc1_decoder"
-wmv3_dxva2_hwaccel_select="vc1_dxva2_hwaccel"
-wmv3_vaapi_hwaccel_select="vc1_vaapi_hwaccel"
-wmv3_vdpau_decoder_select="vc1_vdpau_decoder"
 wmv3image_decoder_select="wmv3_decoder"
 zerocodec_decoder_select="zlib"
 zlib_decoder_select="zlib"
@@ -1605,19 +1638,69 @@ zlib_encoder_select="zlib"
 zmbv_decoder_select="zlib"
 zmbv_encoder_select="zlib"
 
+# hardware accelerators
+dxva2_deps="dxva2api_h"
 vaapi_deps="va_va_h"
 vda_deps="VideoDecodeAcceleration_VDADecoder_h pthreads"
+vda_extralibs="-framework CoreFoundation -framework VideoDecodeAcceleration -framework QuartzCore"
 vdpau_deps="vdpau_vdpau_h vdpau_vdpau_x11_h"
 
+h263_vaapi_hwaccel_deps="vaapi"
+h263_vaapi_hwaccel_select="h263_decoder"
+h263_vdpau_hwaccel_deps="vdpau"
+h263_vdpau_hwaccel_select="h263_decoder"
+h264_dxva2_hwaccel_deps="dxva2"
+h264_dxva2_hwaccel_select="h264_decoder"
+h264_vaapi_hwaccel_deps="vaapi"
+h264_vaapi_hwaccel_select="h264_decoder"
+h264_vda_hwaccel_deps="vda"
+h264_vda_hwaccel_select="h264_decoder"
+h264_vdpau_decoder_deps="vdpau"
+h264_vdpau_decoder_select="h264_decoder"
+h264_vdpau_hwaccel_deps="vdpau"
+h264_vdpau_hwaccel_select="h264_decoder"
+mpeg_vdpau_decoder_deps="vdpau"
+mpeg_vdpau_decoder_select="mpegvideo_decoder"
+mpeg1_vdpau_decoder_deps="vdpau"
+mpeg1_vdpau_decoder_select="mpeg1video_decoder"
+mpeg1_vdpau_hwaccel_deps="vdpau"
+mpeg1_vdpau_hwaccel_select="mpeg1video_decoder"
+mpeg2_dxva2_hwaccel_deps="dxva2"
+mpeg2_dxva2_hwaccel_select="mpeg2video_decoder"
+mpeg2_vaapi_hwaccel_deps="vaapi"
+mpeg2_vaapi_hwaccel_select="mpeg2video_decoder"
+mpeg2_vdpau_hwaccel_deps="vdpau"
+mpeg2_vdpau_hwaccel_select="mpeg2video_decoder"
+mpeg4_vaapi_hwaccel_deps="vaapi"
+mpeg4_vaapi_hwaccel_select="mpeg4_decoder"
+mpeg4_vdpau_decoder_deps="vdpau"
+mpeg4_vdpau_decoder_select="mpeg4_decoder"
+mpeg4_vdpau_hwaccel_deps="vdpau"
+mpeg4_vdpau_hwaccel_select="mpeg4_decoder"
+vc1_dxva2_hwaccel_deps="dxva2"
+vc1_dxva2_hwaccel_select="vc1_decoder"
+vc1_vaapi_hwaccel_deps="vaapi"
+vc1_vaapi_hwaccel_select="vc1_decoder"
+vc1_vdpau_decoder_deps="vdpau"
+vc1_vdpau_decoder_select="vc1_decoder"
+vc1_vdpau_hwaccel_deps="vdpau"
+vc1_vdpau_hwaccel_select="vc1_decoder"
+wmv3_dxva2_hwaccel_select="vc1_dxva2_hwaccel"
+wmv3_vaapi_hwaccel_select="vc1_vaapi_hwaccel"
+wmv3_vdpau_decoder_select="vc1_vdpau_decoder"
+wmv3_vdpau_hwaccel_select="vc1_vdpau_hwaccel"
+
 # parsers
-h264_parser_select="error_resilience golomb h264dsp h264pred mpegvideo"
+h264_parser_select="error_resilience golomb h264chroma h264dsp h264pred h264qpel videodsp"
 mpeg4video_parser_select="error_resilience mpegvideo"
 mpegvideo_parser_select="error_resilience mpegvideo"
-vc1_parser_select="error_resilience mpegvideo"
+vc1_parser_select="mpegvideo"
 
 # external libraries
 libfaac_encoder_deps="libfaac"
+libfaac_encoder_select="audio_frame_queue"
 libfdk_aac_encoder_deps="libfdk_aac"
+libfdk_aac_encoder_select="audio_frame_queue"
 libgsm_decoder_deps="libgsm"
 libgsm_encoder_deps="libgsm"
 libgsm_ms_decoder_deps="libgsm"
@@ -1625,23 +1708,31 @@ libgsm_ms_encoder_deps="libgsm"
 libilbc_decoder_deps="libilbc"
 libilbc_encoder_deps="libilbc"
 libmp3lame_encoder_deps="libmp3lame"
+libmp3lame_encoder_select="audio_frame_queue"
 libopencore_amrnb_decoder_deps="libopencore_amrnb"
 libopencore_amrnb_encoder_deps="libopencore_amrnb"
+libopencore_amrnb_encoder_select="audio_frame_queue"
 libopencore_amrwb_decoder_deps="libopencore_amrwb"
 libopenjpeg_decoder_deps="libopenjpeg"
 libopenjpeg_encoder_deps="libopenjpeg"
 libopus_decoder_deps="libopus"
 libopus_encoder_deps="libopus"
+libopus_encoder_select="audio_frame_queue"
 libschroedinger_decoder_deps="libschroedinger"
 libschroedinger_encoder_deps="libschroedinger"
 libspeex_decoder_deps="libspeex"
 libspeex_encoder_deps="libspeex"
+libspeex_encoder_select="audio_frame_queue"
 libtheora_encoder_deps="libtheora"
 libvo_aacenc_encoder_deps="libvo_aacenc"
+libvo_aacenc_encoder_select="audio_frame_queue"
 libvo_amrwbenc_encoder_deps="libvo_amrwbenc"
 libvorbis_encoder_deps="libvorbis"
-libvpx_decoder_deps="libvpx"
-libvpx_encoder_deps="libvpx"
+libvorbis_encoder_select="audio_frame_queue"
+libvpx_vp8_decoder_deps="libvpx"
+libvpx_vp8_encoder_deps="libvpx"
+libvpx_vp9_decoder_deps="libvpx"
+libvpx_vp9_encoder_deps="libvpx"
 libx264_encoder_deps="libx264"
 libxavs_encoder_deps="libxavs"
 libxvid_encoder_deps="libxvid"
@@ -1658,6 +1749,7 @@ ismv_muxer_select="mov_muxer"
 matroska_audio_muxer_select="matroska_muxer"
 matroska_demuxer_suggest="bzlib lzo zlib"
 mov_demuxer_suggest="zlib"
+mov_muxer_select="rtpenc_chain"
 mp3_demuxer_select="mpegaudio_parser"
 mp4_muxer_select="mov_muxer"
 mpegts_muxer_select="adts_muxer latm_muxer mpegvideo"
@@ -1669,9 +1761,9 @@ rtp_demuxer_select="sdp_demuxer"
 rtp_muxer_select="mpegvideo"
 rtpdec_select="asf_demuxer rm_demuxer rtp_protocol mpegts_demuxer mov_demuxer"
 rtsp_demuxer_select="http_protocol rtpdec"
-rtsp_muxer_select="rtp_muxer http_protocol rtp_protocol"
+rtsp_muxer_select="rtp_muxer http_protocol rtp_protocol rtpenc_chain"
 sap_demuxer_select="sdp_demuxer"
-sap_muxer_select="rtp_muxer rtp_protocol"
+sap_muxer_select="rtp_muxer rtp_protocol rtpenc_chain"
 sdp_demuxer_select="rtpdec"
 smoothstreaming_muxer_select="ismv_muxer"
 spdif_muxer_select="aac_parser"
@@ -1705,10 +1797,8 @@ ffrtmpcrypt_protocol_deps_any="gcrypt nettle openssl"
 ffrtmpcrypt_protocol_select="tcp_protocol"
 ffrtmphttp_protocol_deps="!librtmp_protocol"
 ffrtmphttp_protocol_select="http_protocol"
-gopher_protocol_deps="network"
-httpproxy_protocol_deps="network"
+gopher_protocol_select="network"
 httpproxy_protocol_select="tcp_protocol"
-http_protocol_deps="network"
 http_protocol_select="tcp_protocol"
 https_protocol_select="tls_protocol"
 librtmp_protocol_deps="librtmp"
@@ -1717,7 +1807,7 @@ librtmps_protocol_deps="librtmp"
 librtmpt_protocol_deps="librtmp"
 librtmpte_protocol_deps="librtmp"
 mmsh_protocol_select="http_protocol"
-mmst_protocol_deps="network"
+mmst_protocol_select="network"
 rtmp_protocol_deps="!librtmp_protocol"
 rtmp_protocol_select="tcp_protocol"
 rtmpe_protocol_select="ffrtmpcrypt_protocol"
@@ -1727,11 +1817,13 @@ rtmpt_protocol_select="ffrtmphttp_protocol"
 rtmpte_protocol_select="ffrtmpcrypt_protocol ffrtmphttp_protocol"
 rtmpts_protocol_select="ffrtmphttp_protocol https_protocol"
 rtp_protocol_select="udp_protocol"
-sctp_protocol_deps="network struct_sctp_event_subscribe"
-tcp_protocol_deps="network"
+sctp_protocol_deps="struct_sctp_event_subscribe"
+sctp_protocol_select="network"
+srtp_protocol_select="rtp_protocol"
+tcp_protocol_select="network"
 tls_protocol_deps_any="openssl gnutls"
 tls_protocol_select="tcp_protocol"
-udp_protocol_deps="network"
+udp_protocol_select="network"
 
 # filters
 blackframe_filter_deps="gpl"
@@ -1759,8 +1851,9 @@ swscale_deps="avutil"
 
 # programs
 avconv_deps="avcodec avfilter avformat avresample swscale"
-avconv_select="aformat_filter asyncts_filter
-               format_filter fps_filter scale_filter setpts_filter"
+avconv_select="aformat_filter anull_filter asyncts_filter format_filter
+               fps_filter null_filter resample_filter scale_filter
+               setpts_filter"
 avplay_deps="avcodec avformat avresample swscale sdl"
 avplay_select="rdft"
 avprobe_deps="avcodec avformat"
@@ -1787,7 +1880,7 @@ ar_default="ar"
 cc_default="gcc"
 host_cc_default="gcc"
 cp_f="cp -f"
-ln_s="ln -sf"
+ln_s="ln -s -f"
 nm_default="nm -g"
 objformat="elf"
 pkg_config_default=pkg-config
@@ -1810,7 +1903,6 @@ enable $LIBRARY_LIST $PROGRAM_LIST
 enable asm
 enable debug
 enable doc
-enable network
 enable optimizations
 enable safe_bitstream_reader
 enable static
@@ -1848,7 +1940,8 @@ HOSTCC_C='-c'
 HOSTCC_O='-o $@'
 HOSTLD_O='-o $@'
 
-host_cflags='-D_ISOC99_SOURCE -D_XOPEN_SOURCE=600 -O3 -g'
+host_cflags='-O3 -g'
+host_cppflags='-D_ISOC99_SOURCE -D_XOPEN_SOURCE=600'
 host_libs='-lm'
 host_cflags_filter=echo
 host_ldflags_filter=echo
@@ -1917,8 +2010,6 @@ for n in $COMPONENT_LIST; do
     eval ${n}_if_any="\$$v"
 done
 
-disable snow_decoder snow_encoder
-
 enable $ARCH_EXT_LIST
 
 die_unknown(){
@@ -1927,10 +2018,14 @@ die_unknown(){
     exit 1
 }
 
+print_3_columns() {
+    cat | tr ' ' '\n' | sort | pr -r -3 -t
+}
+
 show_list() {
     suffix=_$1
     shift
-    echo $* | sed s/$suffix//g | tr ' ' '\n' | sort | pr -3 -t
+    echo $* | sed s/$suffix//g | print_3_columns
     exit 0
 }
 
@@ -1958,19 +2053,27 @@ do_random(){
 for opt do
     optval="${opt#*=}"
     case "$opt" in
-        --extra-ldflags=*) add_ldflags $optval
+        --extra-ldflags=*)
+            add_ldflags $optval
         ;;
-        --extra-libs=*) add_extralibs $optval
+        --extra-libs=*)
+            add_extralibs $optval
         ;;
-        --disable-devices) disable $INDEV_LIST $OUTDEV_LIST
+        --disable-devices)
+            disable $INDEV_LIST $OUTDEV_LIST
         ;;
-        --enable-debug=*) debuglevel="$optval"
+        --enable-debug=*)
+            debuglevel="$optval"
         ;;
         --disable-programs)
             disable $PROGRAM_LIST
         ;;
         --disable-everything)
             map 'eval unset \${$(toupper ${v%s})_LIST}' $COMPONENT_LIST
+        ;;
+        --disable-all)
+            map 'eval unset \${$(toupper ${v%s})_LIST}' $COMPONENT_LIST
+            disable $LIBRARY_LIST $PROGRAM_LIST doc
         ;;
         --enable-random|--disable-random)
             action=${opt%%-random}
@@ -2162,6 +2265,7 @@ msvc_flags(){
             -fno-math-errno)      ;;
             -fno-common)          ;;
             -fno-signed-zeros)    ;;
+            -fPIC)                ;;
             -lz)                  echo zlib.lib ;;
             -lavifil32)           echo vfw32.lib ;;
             -lavicap32)           echo vfw32.lib user32.lib ;;
@@ -2212,7 +2316,8 @@ suncc_flags(){
             -fomit-frame-pointer) echo -xregs=frameptr    ;;
             -fPIC)                echo -KPIC -xcode=pic32 ;;
             -W*,*)                echo $flag              ;;
-            -f*-*|-W*)                                    ;;
+            -f*-*|-W*|-mimpure-text)                      ;;
+            -shared)              echo -G                 ;;
             *)                    echo $flag              ;;
         esac
     done
@@ -2275,7 +2380,7 @@ probe_cc(){
         fi
         _cflags_speed='-O3'
         _cflags_size='-Os'
-    elif $_cc --version 2>/dev/null | grep -q Intel; then
+    elif $_cc --version 2>/dev/null | grep -q ^icc; then
         _type=icc
         _ident=$($_cc --version | head -n1)
         _depflags='-MMD'
@@ -2762,7 +2867,7 @@ check_64bit(){
 }
 
 case "$arch" in
-    alpha|ia64)
+    aarch64|alpha|ia64)
         spic=$shared
     ;;
     mips)
@@ -2819,15 +2924,9 @@ case $target_os in
         oss_outdev_extralibs="-lossaudio"
         ;;
     openbsd|bitrig)
-        # On OpenBSD 4.5. the compiler does not use PIC unless
-        # explicitly using -fPIC. Libav builds fine without PIC,
-        # however the generated executable will not do anything
-        # (simply quits with exit-code 1, no crash, no output).
-        # Thus explicitly enable PIC here.
-        enable pic
         disable symver
         SHFLAGS='-shared'
-        SLIBNAME_WITH_MAJOR='$(SLIBNAME).$(LIBVERSION)'
+        SLIB_INSTALL_NAME='$(SLIBNAME).$(LIBMAJOR).$(LIBMINOR)'
         SLIB_INSTALL_LINKS=
         oss_indev_extralibs="-lossaudio"
         oss_outdev_extralibs="-lossaudio"
@@ -2882,7 +2981,6 @@ case $target_os in
         dlltool="${cross_prefix}dlltool"
         ranlib=:
         enable dos_paths
-        add_cppflags -U__STRICT_ANSI__
         ;;
     win32|win64)
         if enabled shared; then
@@ -2995,7 +3093,6 @@ case $target_os in
         network_extralibs='-lbsd'
         exeobjs=compat/plan9/main.o
         disable avserver
-        ln_s='ln -s -f'
         cp_f='cp'
         ;;
     none)
@@ -3007,20 +3104,23 @@ esac
 
 # determine libc flavour
 
+# uclibc defines __GLIBC__, so it needs to be checked before glibc.
 if check_cpp_condition features.h "defined __UCLIBC__"; then
     libc_type=uclibc
     add_cppflags -D_POSIX_C_SOURCE=200112 -D_XOPEN_SOURCE=600
 elif check_cpp_condition features.h "defined __GLIBC__"; then
     libc_type=glibc
     add_cppflags -D_POSIX_C_SOURCE=200112 -D_XOPEN_SOURCE=600
+# MinGW headers can be installed on Cygwin, so check for newlib first.
+elif check_cpp_condition newlib.h "defined _NEWLIB_VERSION"; then
+    libc_type=newlib
+    add_cppflags -U__STRICT_ANSI__
 elif check_header _mingw.h; then
     libc_type=mingw
     check_cpp_condition _mingw.h \
         "defined (__MINGW64_VERSION_MAJOR) || (__MINGW32_MAJOR_VERSION > 3) || \
             (__MINGW32_MAJOR_VERSION == 3 && __MINGW32_MINOR_VERSION >= 15)" ||
         die "ERROR: MinGW runtime version must be >= 3.15."
-elif check_cpp_condition newlib.h "defined _NEWLIB_VERSION"; then
-    libc_type=newlib
     add_cppflags -U__STRICT_ANSI__
 elif check_func_headers stdlib.h _get_doserrno; then
     libc_type=msvcrt
@@ -3219,9 +3319,8 @@ elif enabled sparc; then
 
 elif enabled x86; then
 
-    check_code ld intrin.h "__rdtsc()" && enable rdtsc
-
-    check_code ld mmintrin.h "_mm_empty()" && enable mm_empty
+    check_builtin rdtsc    intrin.h   "__rdtsc()"
+    check_builtin mm_empty mmintrin.h "_mm_empty()"
 
     enable local_aligned_8 local_aligned_16
 
@@ -3296,7 +3395,7 @@ elif check_func dlopen -ldl; then
     ldl=-ldl
 fi
 
-if enabled network; then
+if ! disabled network; then
     check_type "sys/types.h sys/socket.h" socklen_t
     check_type netdb.h "struct addrinfo"
     check_type netinet/in.h "struct group_source_req" -D_BSD_SOURCE
@@ -3356,6 +3455,9 @@ check_func  strerror_r
 check_func  strptime
 check_func  strtok_r
 check_func  sched_getaffinity
+check_builtin sync_val_compare_and_swap "" "int *ptr; int oldval, newval; __sync_val_compare_and_swap(ptr, oldval, newval)"
+check_builtin machine_rw_barrier mbarrier.h "__machine_rw_barrier()"
+check_builtin MemoryBarrier windows.h "MemoryBarrier()"
 check_func  sysconf
 check_func  sysctl
 check_func  usleep
@@ -3386,6 +3488,7 @@ check_header sys/time.h
 check_header unistd.h
 check_header vdpau/vdpau.h
 check_header vdpau/vdpau_x11.h
+check_header VideoDecodeAcceleration/VDADecoder.h
 check_header windows.h
 check_header X11/extensions/XvMClib.h
 
@@ -3441,7 +3544,9 @@ enabled gnutls     && require_pkg_config gnutls gnutls/gnutls.h gnutls_global_in
 enabled libfaac    && require2 libfaac "stdint.h faac.h" faacEncGetVersion -lfaac
 enabled libfdk_aac && require  libfdk_aac fdk-aac/aacenc_lib.h aacEncOpen -lfdk-aac
 enabled libfreetype && require_pkg_config freetype2 "ft2build.h freetype/freetype.h" FT_Init_FreeType
-enabled libgsm     && require  libgsm gsm/gsm.h gsm_create -lgsm
+enabled libgsm     && { for gsm_hdr in "gsm.h" "gsm/gsm.h"; do
+                            check_lib "${gsm_hdr}" gsm_create -lgsm && break;
+                        done || die "ERROR: libgsm not found"; }
 enabled libilbc    && require  libilbc ilbc.h WebRtcIlbcfix_InitDecode -lilbc
 enabled libmp3lame && require  "libmp3lame >= 3.98.3" lame/lame.h lame_set_VBR_quality -lmp3lame
 enabled libopencore_amrnb  && require libopencore_amrnb opencore-amrnb/interf_dec.h Decoder_Interface_init -lopencore-amrnb
@@ -3458,10 +3563,12 @@ enabled libvo_aacenc && require libvo_aacenc vo-aacenc/voAAC.h voGetAACEncAPI -l
 enabled libvo_amrwbenc && require libvo_amrwbenc vo-amrwbenc/enc_if.h E_IF_init -lvo-amrwbenc
 enabled libvorbis  && require  libvorbis vorbis/vorbisenc.h vorbis_info_init -lvorbisenc -lvorbis -logg
 enabled libvpx     && {
-    enabled libvpx_decoder && { check_lib2 "vpx/vpx_decoder.h vpx/vp8dx.h" vpx_codec_dec_init_ver -lvpx ||
+    enabled libvpx_vp8_decoder && { check_lib2 "vpx/vpx_decoder.h vpx/vp8dx.h" vpx_codec_dec_init_ver -lvpx ||
                                 die "ERROR: libvpx decoder version must be >=0.9.1"; }
-    enabled libvpx_encoder && { check_lib2 "vpx/vpx_encoder.h vpx/vp8cx.h" "vpx_codec_enc_init_ver VPX_CQ" -lvpx ||
-                                die "ERROR: libvpx encoder version must be >=0.9.6"; } }
+    enabled libvpx_vp8_encoder && { check_lib2 "vpx/vpx_encoder.h vpx/vp8cx.h" "vpx_codec_enc_init_ver VPX_CQ" -lvpx ||
+                                die "ERROR: libvpx encoder version must be >=0.9.6"; }
+    enabled libvpx_vp9_decoder && { check_lib2 "vpx/vpx_decoder.h vpx/vp8dx.h" "vpx_codec_vp9_dx" -lvpx || disable libvpx_vp9_decoder;  }
+    enabled libvpx_vp9_encoder && { check_lib2 "vpx/vpx_encoder.h vpx/vp8cx.h" "vpx_codec_vp9_cx" -lvpx || disable libvpx_vp9_encoder; } }
 enabled libx264    && require  libx264 x264.h x264_encoder_encode -lx264 &&
                       { check_cpp_condition x264.h "X264_BUILD >= 118" ||
                         die "ERROR: libx264 version must be >= 0.118."; }
@@ -3488,8 +3595,8 @@ fi
 
 if check_pkg_config sdl SDL_events.h SDL_PollEvent; then
     check_cpp_condition SDL.h "(SDL_MAJOR_VERSION<<16 | SDL_MINOR_VERSION<<8 | SDL_PATCHLEVEL) >= 0x010201" $sdl_cflags &&
-    enable sdl &&
-    check_struct SDL.h SDL_VideoInfo current_w $sdl_cflags && enable sdl_video_size
+    check_cpp_condition SDL.h "(SDL_MAJOR_VERSION<<16 | SDL_MINOR_VERSION<<8 | SDL_PATCHLEVEL) < 0x010300" $sdl_cflags &&
+    enable sdl
 fi
 
 texi2html -version > /dev/null 2>&1 && enable texi2html || disable texi2html
@@ -3525,23 +3632,18 @@ enabled jack_indev && check_lib2 jack/jack.h jack_client_open -ljack &&
 
 enabled_any sndio_indev sndio_outdev && check_lib2 sndio.h sio_open -lsndio
 
-enabled libcdio &&
-    check_lib2 "cdio/cdda.h cdio/paranoia.h" cdio_cddap_open -lcdio_paranoia -lcdio_cdda -lcdio
+if enabled libcdio; then
+    check_lib2 "cdio/cdda.h cdio/paranoia.h" cdio_cddap_open -lcdio_paranoia -lcdio_cdda -lcdio || check_lib2 "cdio/paranoia/cdda.h cdio/paranoia/paranoia.h" cdio_cddap_open -lcdio_paranoia -lcdio_cdda -lcdio
+fi
 
 enabled x11grab                                           &&
 require X11 X11/Xlib.h XOpenDisplay -lX11                 &&
 require Xext X11/extensions/XShm.h XShmCreateImage -lXext &&
 require Xfixes X11/extensions/Xfixes.h XFixesGetCursorImage -lXfixes
 
-# check for VDA header
-if ! disabled vda && check_header VideoDecodeAcceleration/VDADecoder.h; then
-    enable vda && add_extralibs -framework CoreFoundation -framework VideoDecodeAcceleration -framework QuartzCore
-fi
-
-if ! disabled vdpau && enabled vdpau_vdpau_h; then
+enabled vdpau &&
     check_cpp_condition vdpau/vdpau.h "defined VDP_DECODER_PROFILE_MPEG4_PART2_ASP" ||
-        { echolog "Please upgrade to libvdpau >= 0.2 if you would like vdpau support." && disable vdpau; }
-fi
+    disable vdpau
 
 enabled debug && add_cflags -g"$debuglevel" && add_asflags -g"$debuglevel"
 
@@ -3632,8 +3734,6 @@ if enabled icc; then
     # 11030: Warning unknown option --as-needed
     # 10156: ignoring option '-export'; no argument required
     check_ldflags -wd10156,11030
-    # Allow to compile with optimizations
-    check_ldflags -march=$cpu
     # icc 11.0 and 11.1 work with ebp_available, but don't pass the test
     enable ebp_available
     if enabled x86_32; then
@@ -3652,6 +3752,7 @@ elif enabled gcc; then
     check_optflags -fno-tree-vectorize
     check_cflags -Werror=implicit-function-declaration
     check_cflags -Werror=missing-prototypes
+    check_cflags -Werror=return-type
     check_cflags -Werror=declaration-after-statement
     check_cflags -Werror=vla
 elif enabled llvm_gcc; then
@@ -3661,6 +3762,7 @@ elif enabled clang; then
     check_cflags -Qunused-arguments
     check_cflags -Werror=implicit-function-declaration
     check_cflags -Werror=missing-prototypes
+    check_cflags -Werror=return-type
 elif enabled armcc; then
     # 2523: use of inline assembler is deprecated
     add_cflags -W${armcc_opt},--diag_suppress=2523
@@ -3750,47 +3852,18 @@ echo "network support           ${network-no}"
 echo "threading support         ${thread_type-no}"
 echo "safe bitstream reader     ${safe_bitstream_reader-no}"
 echo "SDL support               ${sdl-no}"
-echo "libdxva2 enabled          ${dxva2-no}"
-echo "libva enabled             ${vaapi-no}"
-echo "libvdpau enabled          ${vdpau-no}"
-echo "AVISynth enabled          ${avisynth-no}"
-echo "frei0r enabled            ${frei0r-no}"
-echo "gnutls enabled            ${gnutls-no}"
-echo "libcdio support           ${libcdio-no}"
-echo "libdc1394 support         ${libdc1394-no}"
-echo "libfaac enabled           ${libfaac-no}"
-echo "libfdk-aac enabled        ${libfdk_aac-no}"
-echo "libgsm enabled            ${libgsm-no}"
-echo "libilbc enabled           ${libilbc-no}"
-echo "libmp3lame enabled        ${libmp3lame-no}"
-echo "libopencore-amrnb support ${libopencore_amrnb-no}"
-echo "libopencore-amrwb support ${libopencore_amrwb-no}"
-echo "libopencv support         ${libopencv-no}"
-echo "libopenjpeg enabled       ${libopenjpeg-no}"
-echo "libopus enabled           ${libopus-no}"
-echo "libpulse enabled          ${libpulse-no}"
-echo "librtmp enabled           ${librtmp-no}"
-echo "libschroedinger enabled   ${libschroedinger-no}"
-echo "libspeex enabled          ${libspeex-no}"
-echo "libtheora enabled         ${libtheora-no}"
-echo "libvo-aacenc support      ${libvo_aacenc-no}"
-echo "libvo-amrwbenc support    ${libvo_amrwbenc-no}"
-echo "libvorbis enabled         ${libvorbis-no}"
-echo "libvpx enabled            ${libvpx-no}"
-echo "libx264 enabled           ${libx264-no}"
-echo "libxavs enabled           ${libxavs-no}"
-echo "libxvid enabled           ${libxvid-no}"
-echo "openssl enabled           ${openssl-no}"
-echo "zlib enabled              ${zlib-no}"
-echo "bzlib enabled             ${bzlib-no}"
 test -n "$random_seed" &&
     echo "random seed               ${random_seed}"
+echo
+
+echo "External libraries:"
+print_enabled '' $EXTERNAL_LIBRARY_LIST | print_3_columns
 echo
 
 for type in decoder encoder hwaccel parser demuxer muxer protocol filter bsf indev outdev; do
     echo "Enabled ${type}s:"
     eval list=\$$(toupper $type)_LIST
-    print_enabled '_*' $list | sort | pr -r -3 -t
+    print_enabled '_*' $list | print_3_columns
     echo
 done
 
@@ -3854,7 +3927,7 @@ LD_PATH=$LD_PATH
 DLLTOOL=$dlltool
 LDFLAGS=$LDFLAGS
 LDFLAGS-avserver=$AVSERVERLDFLAGS
-SHFLAGS=$SHFLAGS
+SHFLAGS=$(echo $($ldflags_filter $SHFLAGS))
 YASMFLAGS=$YASMFLAGS
 BUILDSUF=$build_suffix
 FULLNAME=$FULLNAME
@@ -3874,6 +3947,7 @@ AS_DEPFLAGS=$AS_DEPFLAGS
 HOSTCC=$host_cc
 HOSTLD=$host_ld
 HOSTCFLAGS=$host_cflags
+HOSTCPPFLAGS=$host_cppflags
 HOSTEXESUF=$HOSTEXESUF
 HOSTLDFLAGS=$host_ldflags
 HOSTLIBS=$host_libs
@@ -3916,6 +3990,7 @@ get_version(){
     eval ${name}_VERSION=\$${name}_VERSION_MAJOR.\$${name}_VERSION_MINOR.\$${name}_VERSION_MICRO
     eval echo "${lcname}_VERSION=\$${name}_VERSION" >> config.mak
     eval echo "${lcname}_VERSION_MAJOR=\$${name}_VERSION_MAJOR" >> config.mak
+    eval echo "${lcname}_VERSION_MINOR=\$${name}_VERSION_MINOR" >> config.mak
 }
 
 map 'get_version $v' $LIBRARY_LIST

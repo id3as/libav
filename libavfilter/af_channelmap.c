@@ -150,17 +150,17 @@ static av_cold int channelmap_init(AVFilterContext *ctx, const char *args)
     } else {
         char *dash = strchr(mapping, '-');
         if (!dash) {  // short mapping
-            if (isdigit(*mapping))
+            if (av_isdigit(*mapping))
                 mode = MAP_ONE_INT;
             else
                 mode = MAP_ONE_STR;
-        } else if (isdigit(*mapping)) {
-            if (isdigit(*(dash+1)))
+        } else if (av_isdigit(*mapping)) {
+            if (av_isdigit(*(dash+1)))
                 mode = MAP_PAIR_INT_INT;
             else
                 mode = MAP_PAIR_INT_STR;
         } else {
-            if (isdigit(*(dash+1)))
+            if (av_isdigit(*(dash+1)))
                 mode = MAP_PAIR_STR_INT;
             else
                 mode = MAP_PAIR_STR_STR;
@@ -313,7 +313,7 @@ static int channelmap_query_formats(AVFilterContext *ctx)
     return 0;
 }
 
-static int channelmap_filter_frame(AVFilterLink *inlink, AVFilterBufferRef *buf)
+static int channelmap_filter_frame(AVFilterLink *inlink, AVFrame *buf)
 {
     AVFilterContext  *ctx = inlink->dst;
     AVFilterLink *outlink = ctx->outputs[0];
@@ -331,7 +331,7 @@ static int channelmap_filter_frame(AVFilterLink *inlink, AVFilterBufferRef *buf)
             uint8_t **new_extended_data =
                 av_mallocz(nch_out * sizeof(*buf->extended_data));
             if (!new_extended_data) {
-                avfilter_unref_buffer(buf);
+                av_frame_free(&buf);
                 return AVERROR(ENOMEM);
             }
             if (buf->extended_data == buf->data) {

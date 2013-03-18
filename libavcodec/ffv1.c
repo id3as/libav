@@ -29,7 +29,6 @@
 #include "avcodec.h"
 #include "get_bits.h"
 #include "put_bits.h"
-#include "dsputil.h"
 #include "rangecoder.h"
 #include "golomb.h"
 #include "mathops.h"
@@ -267,10 +266,7 @@ av_cold int ffv1_close(AVCodecContext *avctx)
     FFV1Context *s = avctx->priv_data;
     int i, j;
 
-    if (avctx->codec->decode && s->picture.data[0])
-        avctx->release_buffer(avctx, &s->picture);
-    if (avctx->codec->decode && s->last_picture.data[0])
-        avctx->release_buffer(avctx, &s->last_picture);
+    av_frame_unref(&s->last_picture);
 
     for (j = 0; j < s->slice_count; j++) {
         FFV1Context *fs = s->slice_context[j];

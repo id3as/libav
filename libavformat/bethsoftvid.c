@@ -57,7 +57,7 @@ typedef struct BVID_DemuxContext
 
 static int vid_probe(AVProbeData *p)
 {
-    // little endian VID tag, file starts with "VID\0"
+    // little-endian VID tag, file starts with "VID\0"
     if (AV_RL32(p->buf) != MKTAG('V', 'I', 'D', 0))
         return 0;
 
@@ -108,8 +108,9 @@ static int read_frame(BVID_DemuxContext *vid, AVIOContext *pb, AVPacket *pkt,
             return AVERROR(ENOMEM);
         vid->video_index = st->index;
         if (vid->audio_index < 0) {
-            av_log_ask_for_sample(s, "No audio packet before first video "
-                                  "packet. Using default video time base.\n");
+            avpriv_request_sample(s, "Using default video time base since "
+                                  "having no audio packet before the first "
+                                  "video packet");
         }
         avpriv_set_pts_info(st, 64, 185, vid->sample_rate);
         st->codec->codec_type = AVMEDIA_TYPE_VIDEO;

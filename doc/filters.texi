@@ -90,7 +90,7 @@ Follows a BNF description for the filtergraph syntax:
 @var{LINKLABEL}        ::= "[" @var{NAME} "]"
 @var{LINKLABELS}       ::= @var{LINKLABEL} [@var{LINKLABELS}]
 @var{FILTER_ARGUMENTS} ::= sequence of chars (eventually quoted)
-@var{FILTER}           ::= [@var{LINKNAMES}] @var{NAME} ["=" @var{ARGUMENTS}] [@var{LINKNAMES}]
+@var{FILTER}           ::= [@var{LINKLABELS}] @var{NAME} ["=" @var{FILTER_ARGUMENTS}] [@var{LINKLABELS}]
 @var{FILTERCHAIN}      ::= @var{FILTER} [,@var{FILTERCHAIN}]
 @var{FILTERGRAPH}      ::= [sws_flags=@var{flags};] @var{FILTERCHAIN} [;@var{FILTERGRAPH}]
 @end example
@@ -250,11 +250,12 @@ Maximum compensation in samples per second. Relevant only with compensate=1.
 Default value 500.
 
 @item first_pts
-Assume the first pts should be this value.
+Assume the first pts should be this value. The time base is 1 / sample rate.
 This allows for padding/trimming at the start of stream. By default, no
 assumption is made about the first frame's expected pts, so no padding or
 trimming is done. For example, this could be set to 0 to pad the beginning with
-silence if an audio stream starts after the video stream.
+silence if an audio stream starts after the video stream or to trim any samples
+with a negative pts due to encoder delay.
 
 @end table
 
@@ -620,9 +621,6 @@ same as @var{out_w} and @var{out_h}
 
 @item n
 the number of input frame, starting from 0
-
-@item pos
-the position in the file of the input frame, NAN if unknown
 
 @item t
 timestamp expressed in seconds, NAN if the input timestamp is unknown
@@ -1316,6 +1314,8 @@ Negate input video.
 This filter accepts an integer in input, if non-zero it negates the
 alpha component (if available). The default value in input is 0.
 
+@section noformat
+
 Force libavfilter not to use any of the specified pixel formats for the
 input to the next filter.
 
@@ -1759,9 +1759,6 @@ the frame is bottom-field-first
 @item key
 1 if the filtered frame is a key-frame, 0 otherwise
 
-@item pos
-the position in the file of the filtered frame, -1 if the information
-is not available (e.g. for synthetic video)
 @end table
 
 The default value of the select expression is "1".
@@ -1853,15 +1850,17 @@ the PTS of the first video frame
 @item INTERLACED
 tell if the current frame is interlaced
 
-@item POS
-original position in the file of the frame, or undefined if undefined
-for the current frame
-
 @item PREV_INPTS
 previous input PTS
 
 @item PREV_OUTPTS
 previous output PTS
+
+@item RTCTIME
+wallclock (RTC) time in microseconds
+
+@item RTCSTART
+wallclock (RTC) time at the start of the movie in microseconds
 
 @end table
 
@@ -1882,6 +1881,9 @@ setpts=N/(25*TB)
 
 # fixed rate 25 fps with some jitter
 setpts='1/(25*TB) * (N + 0.05 * sin(N*2*PI/25))'
+
+# generate timestamps from a "live source" and rebase onto the current timebase
+setpts='(RTCTIME - RTCSTART) / (TB * 1000000)"
 @end example
 
 @anchor{setsar}

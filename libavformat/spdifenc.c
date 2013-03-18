@@ -307,7 +307,7 @@ static int spdif_header_dts(AVFormatContext *s, AVPacket *pkt)
          * discs and dts-in-wav. */
         ctx->use_preamble = 0;
     } else if (ctx->out_bytes > ctx->pkt_offset - BURST_HEADER_SIZE) {
-        av_log_ask_for_sample(s, "Unrecognized large DTS frame.");
+        avpriv_request_sample(s, "Unrecognized large DTS frame");
         /* This will fail with a "bitrate too high" in the caller */
     }
 
@@ -339,7 +339,7 @@ static int spdif_header_mpeg(AVFormatContext *s, AVPacket *pkt)
         ctx->data_type  = mpeg_data_type [version & 1][layer];
         ctx->pkt_offset = spdif_mpeg_pkt_offset[version & 1][layer];
     }
-    // TODO Data type dependant info (normal/karaoke, dynamic range control)
+    // TODO Data type dependent info (normal/karaoke, dynamic range control)
     return 0;
 }
 
@@ -412,9 +412,9 @@ static int spdif_header_truehd(AVFormatContext *s, AVPacket *pkt)
     if (pkt->size > TRUEHD_FRAME_OFFSET - mat_code_length) {
         /* if such frames exist, we'd need some more complex logic to
          * distribute the TrueHD frames in the MAT frame */
-        av_log(s, AV_LOG_ERROR, "TrueHD frame too big, %d bytes\n", pkt->size);
-        av_log_ask_for_sample(s, NULL);
-        return AVERROR_INVALIDDATA;
+        avpriv_request_sample(s, "Too large TrueHD frame of %d bytes",
+                              pkt->size);
+        return AVERROR_PATCHWELCOME;
     }
 
     memcpy(&ctx->hd_buf[ctx->hd_buf_count * TRUEHD_FRAME_OFFSET - BURST_HEADER_SIZE + mat_code_length],

@@ -22,10 +22,10 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#include "libavutil/attributes.h"
 #include "libavutil/internal.h"
 #include "libavutil/mem.h"
 #include "libavutil/x86/asm.h"
-#include "libavcodec/dsputil.h"
 #include "dsputil_mmx.h"
 
 #if HAVE_INLINE_ASM
@@ -432,7 +432,7 @@ PIX_SAD(mmxext)
 
 #endif /* HAVE_INLINE_ASM */
 
-void ff_dsputil_init_pix_mmx(DSPContext* c, AVCodecContext *avctx)
+av_cold void ff_dsputil_init_pix_mmx(DSPContext *c, AVCodecContext *avctx)
 {
 #if HAVE_INLINE_ASM
     int mm_flags = av_get_cpu_flags();
@@ -466,7 +466,7 @@ void ff_dsputil_init_pix_mmx(DSPContext* c, AVCodecContext *avctx)
             c->pix_abs[1][3] = sad8_xy2_mmxext;
         }
     }
-    if ((mm_flags & AV_CPU_FLAG_SSE2) && !(mm_flags & AV_CPU_FLAG_3DNOW) && avctx->codec_id != AV_CODEC_ID_SNOW) {
+    if ((mm_flags & AV_CPU_FLAG_SSE2) && !(mm_flags & AV_CPU_FLAG_3DNOW)) {
         c->sad[0]= sad16_sse2;
     }
 #endif /* HAVE_INLINE_ASM */

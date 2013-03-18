@@ -28,7 +28,7 @@ CFLAGS     += $(ECFLAGS)
 CCFLAGS     = $(CPPFLAGS) $(CFLAGS)
 ASFLAGS    := $(CPPFLAGS) $(ASFLAGS)
 YASMFLAGS  += $(IFLAGS:%=%/) -Pconfig.asm
-HOSTCCFLAGS = $(IFLAGS) $(HOSTCFLAGS)
+HOSTCCFLAGS = $(IFLAGS) $(HOSTCPPFLAGS) $(HOSTCFLAGS)
 LDFLAGS    := $(ALLFFLIBS:%=$(LD_PATH)lib%) $(LDFLAGS)
 
 define COMPILE
@@ -187,7 +187,6 @@ uninstall-data:
 clean::
 	$(RM) $(ALLPROGS)
 	$(RM) $(CLEANSUFFIXES)
-	$(RM) $(TOOLS)
 	$(RM) $(CLEANSUFFIXES:%=tools/%)
 
 distclean::

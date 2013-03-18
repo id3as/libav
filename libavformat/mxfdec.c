@@ -396,8 +396,7 @@ static int mxf_read_primer_pack(void *arg, AVIOContext *pb, int tag, int size, U
     int item_len = avio_rb32(pb);
 
     if (item_len != 18) {
-        av_log_ask_for_sample(pb, "unsupported primer pack item length %d\n",
-                              item_len);
+        avpriv_request_sample(pb, "Primer pack item length %d", item_len);
         return AVERROR_PATCHWELCOME;
     }
     if (item_num > UINT_MAX / item_len)
@@ -955,7 +954,7 @@ static int mxf_get_sorted_table_segments(MXFContext *mxf, int *nb_sorted_segment
 
     *sorted_segments  = av_mallocz(nb_segments * sizeof(**sorted_segments));
     unsorted_segments = av_mallocz(nb_segments * sizeof(*unsorted_segments));
-    if (!sorted_segments || !unsorted_segments) {
+    if (!*sorted_segments || !unsorted_segments) {
         av_freep(sorted_segments);
         av_free(unsorted_segments);
         return AVERROR(ENOMEM);
@@ -2027,10 +2026,10 @@ static int mxf_read_packet_old(AVFormatContext *s, AVPacket *pkt)
                 /* if this check is hit then it's possible OPAtom was treated
                  * as OP1a truncate the packet since it's probably very large
                  * (>2 GiB is common) */
-                av_log_ask_for_sample(s,
-                                      "KLV for edit unit %i extends into next "
-                                      "edit unit - OPAtom misinterpreted as "
-                                      "OP1a?\n",
+                avpriv_request_sample(s,
+                                      "OPAtom misinterpreted as OP1a?"
+                                      "KLV for edit unit %i extending into "
+                                      "next edit unit",
                                       mxf->current_edit_unit);
                 klv.length = next_ofs - avio_tell(s->pb);
             }

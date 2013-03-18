@@ -20,7 +20,6 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#include <ctype.h>
 #include <string.h>
 
 #include "libavutil/avassert.h"
@@ -40,7 +39,7 @@ static const AVClass filtergraph_class = {
 
 AVFilterGraph *avfilter_graph_alloc(void)
 {
-    AVFilterGraph *ret = av_mallocz(sizeof(AVFilterGraph));
+    AVFilterGraph *ret = av_mallocz(sizeof(*ret));
     if (!ret)
         return NULL;
     ret->av_class = &filtergraph_class;
@@ -51,9 +50,10 @@ void avfilter_graph_free(AVFilterGraph **graph)
 {
     if (!*graph)
         return;
-    for (; (*graph)->filter_count > 0; (*graph)->filter_count--)
-        avfilter_free((*graph)->filters[(*graph)->filter_count - 1]);
+    for (; (*graph)->nb_filters > 0; (*graph)->nb_filters--)
+        avfilter_free((*graph)->filters[(*graph)->nb_filters - 1]);
     av_freep(&(*graph)->scale_sws_opts);
+    av_freep(&(*graph)->resample_lavr_opts);
     av_freep(&(*graph)->filters);
     av_freep(graph);
 }
@@ -61,12 +61,12 @@ void avfilter_graph_free(AVFilterGraph **graph)
 int avfilter_graph_add_filter(AVFilterGraph *graph, AVFilterContext *filter)
 {
     AVFilterContext **filters = av_realloc(graph->filters,
-                                           sizeof(AVFilterContext*) * (graph->filter_count+1));
+                                           sizeof(*filters) * (graph->nb_filters + 1));
     if (!filters)
         return AVERROR(ENOMEM);
 
     graph->filters = filters;
-    graph->filters[graph->filter_count++] = filter;
+    graph->filters[graph->nb_filters++] = filter;
 
     return 0;
 }
@@ -105,7 +105,7 @@ static int graph_check_validity(AVFilterGraph *graph, AVClass *log_ctx)
     AVFilterContext *filt;
     int i, j;
 
-    for (i = 0; i < graph->filter_count; i++) {
+    for (i = 0; i < graph->nb_filters; i++) {
         filt = graph->filters[i];
 
         for (j = 0; j < filt->nb_inputs; j++) {
@@ -140,7 +140,7 @@ static int graph_config_links(AVFilterGraph *graph, AVClass *log_ctx)
     AVFilterContext *filt;
     int i, ret;
 
-    for (i=0; i < graph->filter_count; i++) {
+    for (i = 0; i < graph->nb_filters; i++) {
         filt = graph->filters[i];
 
         if (!filt->nb_outputs) {
@@ -156,7 +156,7 @@ AVFilterContext *avfilter_graph_get_filter(AVFilterGraph *graph, char *name)
 {
     int i;
 
-    for (i = 0; i < graph->filter_count; i++)
+    for (i = 0; i < graph->nb_filters; i++)
         if (graph->filters[i]->name && !strcmp(name, graph->filters[i]->name))
             return graph->filters[i];
 
@@ -169,7 +169,7 @@ static int query_formats(AVFilterGraph *graph, AVClass *log_ctx)
     int scaler_count = 0, resampler_count = 0;
 
     /* ask all the sub-filters for their supported media formats */
-    for (i = 0; i < graph->filter_count; i++) {
+    for (i = 0; i < graph->nb_filters; i++) {
         if (graph->filters[i]->filter->query_formats)
             graph->filters[i]->filter->query_formats(graph->filters[i]);
         else
@@ -177,7 +177,7 @@ static int query_formats(AVFilterGraph *graph, AVClass *log_ctx)
     }
 
     /* go through and merge as many format lists as possible */
-    for (i = 0; i < graph->filter_count; i++) {
+    for (i = 0; i < graph->nb_filters; i++) {
         AVFilterContext *filter = graph->filters[i];
 
         for (j = 0; j < filter->nb_inputs; j++) {
@@ -235,8 +235,13 @@ static int query_formats(AVFilterGraph *graph, AVClass *log_ctx)
 
                     snprintf(inst_name, sizeof(inst_name), "auto-inserted resampler %d",
                              resampler_count++);
+                    scale_args[0] = '\0';
+                    if (graph->resample_lavr_opts)
+                        snprintf(scale_args, sizeof(scale_args), "%s",
+                                 graph->resample_lavr_opts);
                     if ((ret = avfilter_graph_create_filter(&convert, filter,
-                                                            inst_name, NULL, NULL, graph)) < 0)
+                                                            inst_name, scale_args,
+                                                            NULL, graph)) < 0)
                         return ret;
                     break;
                 default:
@@ -372,7 +377,7 @@ static void reduce_formats(AVFilterGraph *graph)
     do {
         reduced = 0;
 
-        for (i = 0; i < graph->filter_count; i++)
+        for (i = 0; i < graph->nb_filters; i++)
             reduced |= reduce_formats_on_filter(graph->filters[i]);
     } while (reduced);
 }
@@ -420,7 +425,7 @@ static void swap_samplerates(AVFilterGraph *graph)
 {
     int i;
 
-    for (i = 0; i < graph->filter_count; i++)
+    for (i = 0; i < graph->nb_filters; i++)
         swap_samplerates_on_filter(graph->filters[i]);
 }
 
@@ -535,7 +540,7 @@ static void swap_channel_layouts(AVFilterGraph *graph)
 {
     int i;
 
-    for (i = 0; i < graph->filter_count; i++)
+    for (i = 0; i < graph->nb_filters; i++)
         swap_channel_layouts_on_filter(graph->filters[i]);
 }
 
@@ -603,7 +608,7 @@ static void swap_sample_fmts(AVFilterGraph *graph)
 {
     int i;
 
-    for (i = 0; i < graph->filter_count; i++)
+    for (i = 0; i < graph->nb_filters; i++)
         swap_sample_fmts_on_filter(graph->filters[i]);
 
 }
@@ -612,7 +617,7 @@ static int pick_formats(AVFilterGraph *graph)
 {
     int i, j, ret;
 
-    for (i = 0; i < graph->filter_count; i++) {
+    for (i = 0; i < graph->nb_filters; i++) {
         AVFilterContext *filter = graph->filters[i];
 
         for (j = 0; j < filter->nb_inputs; j++)
@@ -659,7 +664,7 @@ static int graph_insert_fifos(AVFilterGraph *graph, AVClass *log_ctx)
     int i, j, ret;
     int fifo_count = 0;
 
-    for (i = 0; i < graph->filter_count; i++) {
+    for (i = 0; i < graph->nb_filters; i++) {
         f = graph->filters[i];
 
         for (j = 0; j < f->nb_inputs; j++) {

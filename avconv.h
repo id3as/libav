@@ -67,6 +67,8 @@ typedef struct MetadataMap {
 } MetadataMap;
 
 typedef struct OptionsContext {
+    OptionGroup *g;
+
     /* input/output options */
     int64_t start_time;
     const char *format;
@@ -198,6 +200,7 @@ typedef struct InputStream {
     int decoding_needed;     /* true if the packets must be decoded in 'raw_fifo' */
     AVCodec *dec;
     AVFrame *decoded_frame;
+    AVFrame *filter_frame; /* a ref of decoded_frame, to be sent to filters */
 
     int64_t       start;     /* time when read started */
     /* predicted dts of the next packet read for this stream or (when there are
@@ -220,9 +223,6 @@ typedef struct InputStream {
     int      resample_sample_rate;
     int      resample_channels;
     uint64_t resample_channel_layout;
-
-    /* a pool of free buffers for decoded data */
-    FrameBuffer *buffer_pool;
 
     /* decoded data from this stream goes into all those filters
      * currently video and audio only */
@@ -291,6 +291,7 @@ typedef struct OutputStream {
 
     int64_t sws_flags;
     AVDictionary *opts;
+    AVDictionary *resample_opts;
     int finished;        /* no more packets should be written for this stream */
     int stream_copy;
     const char *attachment_filename;
@@ -360,5 +361,7 @@ int configure_filtergraph(FilterGraph *fg);
 int configure_output_filter(FilterGraph *fg, OutputFilter *ofilter, AVFilterInOut *out);
 int ist_in_filtergraph(FilterGraph *fg, InputStream *ist);
 FilterGraph *init_simple_filtergraph(InputStream *ist, OutputStream *ost);
+
+int avconv_parse_options(int argc, char **argv);
 
 #endif /* AVCONV_H */

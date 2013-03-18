@@ -158,9 +158,9 @@
  * information will be in AVStream.time_base units, i.e. it has to be
  * multiplied by the timebase to convert them to seconds.
  *
- * If AVPacket.destruct is set on the returned packet, then the packet is
+ * If AVPacket.buf is set on the returned packet, then the packet is
  * allocated dynamically and the user may keep it indefinitely.
- * Otherwise, if AVPacket.destruct is NULL, the packet data is backed by a
+ * Otherwise, if AVPacket.buf is NULL, the packet data is backed by a
  * static storage somewhere inside the demuxer and the packet is only valid
  * until the next av_read_frame() call or closing the file. If the caller
  * requires a longer lifetime, av_dup_packet() will make an av_malloc()ed copy
@@ -206,10 +206,6 @@
 
 #include "avio.h"
 #include "libavformat/version.h"
-
-#if FF_API_AV_GETTIME
-#include "libavutil/time.h"
-#endif
 
 struct AVFormatContext;
 
@@ -636,17 +632,6 @@ typedef struct AVStream {
      *             not actually used for encoding.
      */
     AVCodecContext *codec;
-#if FF_API_R_FRAME_RATE
-    /**
-     * Real base framerate of the stream.
-     * This is the lowest framerate with which all timestamps can be
-     * represented accurately (it is the least common multiple of all
-     * framerates in the stream). Note, this value is just a guess!
-     * For example, if the time base is 1/90000 and all frames have either
-     * approximately 3600 or 1800 timer ticks, then r_frame_rate will be 50/1.
-     */
-    AVRational r_frame_rate;
-#endif
     void *priv_data;
 
     /**
@@ -722,12 +707,6 @@ typedef struct AVStream {
      */
 #define MAX_STD_TIMEBASES (60*12+5)
     struct {
-#if FF_API_R_FRAME_RATE
-        int64_t last_dts;
-        int64_t duration_gcd;
-        int duration_count;
-        double duration_error[MAX_STD_TIMEBASES];
-#endif
         int nb_decoded_frames;
         int found_decoder;
 
@@ -1287,24 +1266,6 @@ int av_find_best_stream(AVFormatContext *ic,
                         AVCodec **decoder_ret,
                         int flags);
 
-#if FF_API_READ_PACKET
-/**
- * @deprecated use AVFMT_FLAG_NOFILLIN | AVFMT_FLAG_NOPARSE to read raw
- * unprocessed packets
- *
- * Read a transport packet from a media file.
- *
- * This function is obsolete and should never be used.
- * Use av_read_frame() instead.
- *
- * @param s media file handle
- * @param pkt is filled
- * @return 0 if OK, AVERROR_xxx on error
- */
-attribute_deprecated
-int av_read_packet(AVFormatContext *s, AVPacket *pkt);
-#endif
-
 /**
  * Return the next frame of a stream.
  * This function returns what is stored in the file, and does not validate
@@ -1313,7 +1274,7 @@ int av_read_packet(AVFormatContext *s, AVPacket *pkt);
  * omit invalid data between valid frames so as to give the decoder the maximum
  * information possible for decoding.
  *
- * If pkt->destruct is NULL, then the packet is valid until the next
+ * If pkt->buf is NULL, then the packet is valid until the next
  * av_read_frame() or until av_close_input_file(). Otherwise the packet is valid
  * indefinitely. In both cases the packet must be freed with
  * av_free_packet when it is no longer needed. For video, the packet contains
@@ -1386,17 +1347,6 @@ int av_read_play(AVFormatContext *s);
  */
 int av_read_pause(AVFormatContext *s);
 
-#if FF_API_CLOSE_INPUT_FILE
-/**
- * @deprecated use avformat_close_input()
- * Close a media file (but not its codecs).
- *
- * @param s media file handle
- */
-attribute_deprecated
-void av_close_input_file(AVFormatContext *s);
-#endif
-
 /**
  * Close an opened input AVFormatContext. Free it and all its contents
  * and set *s to NULL.
@@ -1461,10 +1411,10 @@ int av_write_frame(AVFormatContext *s, AVPacket *pkt);
  * demuxer level.
  *
  * @param s media file handle
- * @param pkt The packet containing the data to be written. Libavformat takes
- * ownership of the data and will free it when it sees fit using the packet's
- * @ref AVPacket.destruct "destruct" field. The caller must not access the data
- * after this function returns, as it may already be freed.
+ * @param pkt The packet containing the data to be written. pkt->buf must be set
+ * to a valid AVBufferRef describing the packet data. Libavformat takes
+ * ownership of this reference and will unref it when it sees fit. The caller
+ * must not access the data through this reference after this function returns.
  * This can be NULL (at any time, not just at the end), to flush the
  * interleaving queues.
  * Packet's @ref AVPacket.stream_index "stream_index" field must be set to the
@@ -1477,16 +1427,6 @@ int av_write_frame(AVFormatContext *s, AVPacket *pkt);
  * @return 0 on success, a negative AVERROR on error.
  */
 int av_interleaved_write_frame(AVFormatContext *s, AVPacket *pkt);
-
-#if FF_API_INTERLEAVE_PACKET
-/**
- * @deprecated this function was never meant to be called by the user
- * programs.
- */
-attribute_deprecated
-int av_interleave_packet_per_dts(AVFormatContext *s, AVPacket *out,
-                                 AVPacket *pkt, int flush);
-#endif
 
 /**
  * Write the stream trailer to an output media file and free the
@@ -1532,7 +1472,7 @@ enum AVCodecID av_guess_codec(AVOutputFormat *fmt, const char *short_name,
  * @ingroup libavf
  * @{
  *
- * Miscelaneous utility functions related to both muxing and demuxing
+ * Miscellaneous utility functions related to both muxing and demuxing
  * (or neither).
  */
 

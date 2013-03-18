@@ -27,7 +27,6 @@
  */
 
 #include "avcodec.h"
-#include "dsputil.h"
 #include "mpegvideo.h"
 #include "h263.h"
 #include "internal.h"
@@ -325,9 +324,9 @@ static int svq1_encode_plane(SVQ1Context *s, int plane,
         s->m.current_picture.mb_mean   = (uint8_t *)s->dummy;
         s->m.current_picture.mb_var    = (uint16_t *)s->dummy;
         s->m.current_picture.mc_mb_var = (uint16_t *)s->dummy;
-        s->m.current_picture.f.mb_type = s->dummy;
+        s->m.current_picture.mb_type = s->dummy;
 
-        s->m.current_picture.f.motion_val[0] = s->motion_val8[plane] + 2;
+        s->m.current_picture.motion_val[0]   = s->motion_val8[plane] + 2;
         s->m.p_mv_table                      = s->motion_val16[plane] +
                                                s->m.mb_stride + 1;
         s->m.dsp                             = s->dsp; // move
@@ -540,7 +539,7 @@ static int svq1_encode_frame(AVCodecContext *avctx, AVPacket *pkt,
 
     if (!pkt->data &&
         (ret = av_new_packet(pkt, s->y_block_width * s->y_block_height *
-                             MAX_MB_BYTES * 3 + FF_MIN_BUFFER_SIZE) < 0)) {
+                             MAX_MB_BYTES * 3 + FF_MIN_BUFFER_SIZE)) < 0) {
         av_log(avctx, AV_LOG_ERROR, "Error getting output packet.\n");
         return ret;
     }
@@ -551,8 +550,8 @@ static int svq1_encode_frame(AVCodecContext *avctx, AVPacket *pkt,
     }
 
     if (!s->current_picture.data[0]) {
-        ff_get_buffer(avctx, &s->current_picture);
-        ff_get_buffer(avctx, &s->last_picture);
+        ff_get_buffer(avctx, &s->current_picture, 0);
+        ff_get_buffer(avctx, &s->last_picture, 0);
         s->scratchbuf = av_malloc(s->current_picture.linesize[0] * 16 * 2);
     }
 
@@ -614,6 +613,9 @@ static av_cold int svq1_encode_end(AVCodecContext *avctx)
         av_freep(&s->motion_val16[i]);
     }
 
+    av_frame_unref(&s->current_picture);
+    av_frame_unref(&s->last_picture);
+
     return 0;
 }
 
@@ -625,7 +627,7 @@ AVCodec ff_svq1_encoder = {
     .init           = svq1_encode_init,
     .encode2        = svq1_encode_frame,
     .close          = svq1_encode_end,
-    .pix_fmts       = (const enum PixelFormat[]) { AV_PIX_FMT_YUV410P,
-                                                   AV_PIX_FMT_NONE },
+    .pix_fmts       = (const enum AVPixelFormat[]) { AV_PIX_FMT_YUV410P,
+                                                     AV_PIX_FMT_NONE },
     .long_name      = NULL_IF_CONFIG_SMALL("Sorenson Vector Quantizer 1 / Sorenson Video 1 / SVQ1"),
 };

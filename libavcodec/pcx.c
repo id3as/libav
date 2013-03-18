@@ -28,19 +28,6 @@
 #include "get_bits.h"
 #include "internal.h"
 
-typedef struct PCXContext {
-    AVFrame picture;
-} PCXContext;
-
-static av_cold int pcx_init(AVCodecContext *avctx) {
-    PCXContext *s = avctx->priv_data;
-
-    avcodec_get_frame_defaults(&s->picture);
-    avctx->coded_frame= &s->picture;
-
-    return 0;
-}
-
 /**
  * @return advanced src pointer
  */
@@ -81,9 +68,7 @@ static int pcx_decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
                             AVPacket *avpkt) {
     const uint8_t *buf = avpkt->data;
     int buf_size = avpkt->size;
-    PCXContext * const s = avctx->priv_data;
-    AVFrame *picture = data;
-    AVFrame * const p = &s->picture;
+    AVFrame * const p = data;
     int compressed, xmin, ymin, xmax, ymax;
     unsigned int w, h, bits_per_pixel, bytes_per_line, nplanes, stride, y, x,
                  bytes_per_scanline;
@@ -94,7 +79,7 @@ static int pcx_decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
 
     if (buf[0] != 0x0a || buf[1] > 5) {
         av_log(avctx, AV_LOG_ERROR, "this is not PCX encoded data\n");
-        return -1;
+        return AVERROR_INVALIDDATA;
     }
 
     compressed = buf[2];
@@ -105,7 +90,7 @@ static int pcx_decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
 
     if (xmax < xmin || ymax < ymin) {
         av_log(avctx, AV_LOG_ERROR, "invalid image dimensions\n");
-        return -1;
+        return AVERROR_INVALIDDATA;
     }
 
     w = xmax - xmin + 1;
@@ -118,7 +103,7 @@ static int pcx_decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
 
     if (bytes_per_scanline < w * bits_per_pixel * nplanes / 8) {
         av_log(avctx, AV_LOG_ERROR, "PCX data is corrupted\n");
-        return -1;
+        return AVERROR_INVALIDDATA;
     }
 
     switch ((nplanes<<8) + bits_per_pixel) {
@@ -136,21 +121,18 @@ static int pcx_decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
             break;
         default:
             av_log(avctx, AV_LOG_ERROR, "invalid PCX file\n");
-            return -1;
+            return AVERROR_INVALIDDATA;
     }
 
     buf += 128;
 
-    if (p->data[0])
-        avctx->release_buffer(avctx, p);
-
-    if (av_image_check_size(w, h, 0, avctx))
-        return -1;
+    if ((ret = av_image_check_size(w, h, 0, avctx)) < 0)
+        return ret;
     if (w != avctx->width || h != avctx->height)
         avcodec_set_dimensions(avctx, w, h);
-    if (ff_get_buffer(avctx, p) < 0) {
+    if ((ret = ff_get_buffer(avctx, p, 0)) < 0) {
         av_log(avctx, AV_LOG_ERROR, "get_buffer() failed\n");
-        return -1;
+        return ret;
     }
 
     p->pict_type = AV_PICTURE_TYPE_I;
@@ -230,7 +212,6 @@ static int pcx_decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
         pcx_palette(&palette, (uint32_t *) p->data[1], 16);
     }
 
-    *picture = s->picture;
     *got_frame = 1;
 
     ret = buf - bufstart;
@@ -239,22 +220,10 @@ end:
     return ret;
 }
 
-static av_cold int pcx_end(AVCodecContext *avctx) {
-    PCXContext *s = avctx->priv_data;
-
-    if(s->picture.data[0])
-        avctx->release_buffer(avctx, &s->picture);
-
-    return 0;
-}
-
 AVCodec ff_pcx_decoder = {
     .name           = "pcx",
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_PCX,
-    .priv_data_size = sizeof(PCXContext),
-    .init           = pcx_init,
-    .close          = pcx_end,
     .decode         = pcx_decode_frame,
     .capabilities   = CODEC_CAP_DR1,
     .long_name      = NULL_IF_CONFIG_SMALL("PC Paintbrush PCX image"),

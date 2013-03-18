@@ -251,16 +251,6 @@ static av_cold int encode_init(AVCodecContext *avctx)
         av_log(avctx, AV_LOG_ERROR, "memory allocation error\n");
         return AVERROR(ENOMEM);
     }
-#if FF_API_OLD_ENCODE_AUDIO
-    avctx->coded_frame = avcodec_alloc_frame();
-    if (!avctx->coded_frame) {
-        av_freep(&avctx->extradata);
-        speex_header_free(header_data);
-        speex_encoder_destroy(s->enc_state);
-        av_log(avctx, AV_LOG_ERROR, "memory allocation error\n");
-        return AVERROR(ENOMEM);
-    }
-#endif
 
     /* copy header packet to extradata */
     memcpy(avctx->extradata, header_data, header_size);
@@ -287,7 +277,7 @@ static int encode_frame(AVCodecContext *avctx, AVPacket *avpkt,
             speex_encode_stereo_int(samples, s->header.frame_size, &s->bits);
         speex_encode_int(s->enc_state, samples, &s->bits);
         s->pkt_frame_count++;
-        if ((ret = ff_af_queue_add(&s->afq, frame) < 0))
+        if ((ret = ff_af_queue_add(&s->afq, frame)) < 0)
             return ret;
     } else {
         /* handle end-of-stream */
@@ -329,9 +319,6 @@ static av_cold int encode_close(AVCodecContext *avctx)
     speex_encoder_destroy(s->enc_state);
 
     ff_af_queue_close(&s->afq);
-#if FF_API_OLD_ENCODE_AUDIO
-    av_freep(&avctx->coded_frame);
-#endif
     av_freep(&avctx->extradata);
 
     return 0;

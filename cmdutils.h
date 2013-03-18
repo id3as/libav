@@ -42,7 +42,7 @@ extern const int program_birth_year;
 extern AVCodecContext *avcodec_opts[AVMEDIA_TYPE_NB];
 extern AVFormatContext *avformat_opts;
 extern struct SwsContext *sws_opts;
-extern AVDictionary *format_opts, *codec_opts;
+extern AVDictionary *format_opts, *codec_opts, *resample_opts;
 
 /**
  * Initialize the cmdutils option system, in particular
@@ -144,6 +144,8 @@ typedef struct OptionDef {
                                    an int containing element count in the array. */
 #define OPT_TIME  0x10000
 #define OPT_DOUBLE 0x20000
+#define OPT_INPUT  0x40000
+#define OPT_OUTPUT 0x80000
      union {
         void *dst_ptr;
         int (*func_arg)(void *, const char *, const char *);
@@ -204,6 +206,100 @@ void parse_options(void *optctx, int argc, char **argv, const OptionDef *options
  */
 int parse_option(void *optctx, const char *opt, const char *arg,
                  const OptionDef *options);
+
+/**
+ * An option extracted from the commandline.
+ * Cannot use AVDictionary because of options like -map which can be
+ * used multiple times.
+ */
+typedef struct Option {
+    const OptionDef  *opt;
+    const char       *key;
+    const char       *val;
+} Option;
+
+typedef struct OptionGroupDef {
+    /**< group name */
+    const char *name;
+    /**
+     * Option to be used as group separator. Can be NULL for groups which
+     * are terminated by a non-option argument (e.g. avconv output files)
+     */
+    const char *sep;
+    /**
+     * Option flags that must be set on each option that is
+     * applied to this group
+     */
+    int flags;
+} OptionGroupDef;
+
+typedef struct OptionGroup {
+    const OptionGroupDef *group_def;
+    const char *arg;
+
+    Option *opts;
+    int  nb_opts;
+
+    AVDictionary *codec_opts;
+    AVDictionary *format_opts;
+    AVDictionary *resample_opts;
+    struct SwsContext *sws_opts;
+} OptionGroup;
+
+/**
+ * A list of option groups that all have the same group type
+ * (e.g. input files or output files)
+ */
+typedef struct OptionGroupList {
+    const OptionGroupDef *group_def;
+
+    OptionGroup *groups;
+    int       nb_groups;
+} OptionGroupList;
+
+typedef struct OptionParseContext {
+    OptionGroup global_opts;
+
+    OptionGroupList *groups;
+    int           nb_groups;
+
+    /* parsing state */
+    OptionGroup cur_group;
+} OptionParseContext;
+
+/**
+ * Parse an options group and write results into optctx.
+ *
+ * @param optctx an app-specific options context. NULL for global options group
+ */
+int parse_optgroup(void *optctx, OptionGroup *g);
+
+/**
+ * Split the commandline into an intermediate form convenient for further
+ * processing.
+ *
+ * The commandline is assumed to be composed of options which either belong to a
+ * group (those with OPT_SPEC, OPT_OFFSET or OPT_PERFILE) or are global
+ * (everything else).
+ *
+ * A group (defined by an OptionGroupDef struct) is a sequence of options
+ * terminated by either a group separator option (e.g. -i) or a parameter that
+ * is not an option (doesn't start with -). A group without a separator option
+ * must always be first in the supplied groups list.
+ *
+ * All options within the same group are stored in one OptionGroup struct in an
+ * OptionGroupList, all groups with the same group definition are stored in one
+ * OptionGroupList in OptionParseContext.groups. The order of group lists is the
+ * same as the order of group definitions.
+ */
+int split_commandline(OptionParseContext *octx, int argc, char *argv[],
+                      const OptionDef *options,
+                      const OptionGroupDef *groups, int nb_groups);
+
+/**
+ * Free all allocated memory in an OptionParseContext.
+ */
+void uninit_parse_context(OptionParseContext *octx);
 
 /**
  * Find the '-loglevel' option in the command line args and apply it.
@@ -418,48 +514,8 @@ FILE *get_preset_file(char *filename, size_t filename_size,
  */
 void *grow_array(void *array, int elem_size, int *size, int new_size);
 
-typedef struct FrameBuffer {
-    uint8_t *base[4];
-    uint8_t *data[4];
-    int  linesize[4];
-
-    int h, w;
-    enum AVPixelFormat pix_fmt;
-
-    int refcount;
-    struct FrameBuffer **pool;  ///< head of the buffer pool
-    struct FrameBuffer *next;
-} FrameBuffer;
-
-/**
- * Get a frame from the pool. This is intended to be used as a callback for
- * AVCodecContext.get_buffer.
- *
- * @param s codec context. s->opaque must be a pointer to the head of the
- *          buffer pool.
- * @param frame frame->opaque will be set to point to the FrameBuffer
- *              containing the frame data.
- */
-int codec_get_buffer(AVCodecContext *s, AVFrame *frame);
-
-/**
- * A callback to be used for AVCodecContext.release_buffer along with
- * codec_get_buffer().
- */
-void codec_release_buffer(AVCodecContext *s, AVFrame *frame);
-
-/**
- * A callback to be used for AVFilterBuffer.free.
- * @param fb buffer to free. fb->priv must be a pointer to the FrameBuffer
- *           containing the buffer data.
- */
-void filter_release_buffer(AVFilterBuffer *fb);
-
-/**
- * Free all the buffers in the pool. This must be called after all the
- * buffers have been released.
- */
-void free_buffer_pool(FrameBuffer **pool);
+#define GROW_ARRAY(array, nb_elems)\
+    array = grow_array(array, sizeof(*array), &nb_elems, nb_elems + 1)
 
 #define GET_PIX_FMT_NAME(pix_fmt)\
     const char *name = av_get_pix_fmt_name(pix_fmt);

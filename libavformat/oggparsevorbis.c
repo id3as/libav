@@ -122,7 +122,7 @@ ff_vorbis_comment(AVFormatContext * as, AVDictionary **m, const uint8_t *buf, in
             }
 
             for (j = 0; j < tl; j++)
-                tt[j] = toupper(t[j]);
+                tt[j] = av_toupper(t[j]);
             tt[tl] = 0;
 
             memcpy(ct, v, vl);
@@ -192,6 +192,16 @@ fixup_vorbis_headers(AVFormatContext * as, struct oggvorbis_private *priv,
     return offset;
 }
 
+static void vorbis_cleanup(AVFormatContext *s, int idx)
+{
+    struct ogg *ogg = s->priv_data;
+    struct ogg_stream *os = ogg->streams + idx;
+    struct oggvorbis_private *priv = os->private;
+    int i;
+    if (os->private)
+        for (i = 0; i < 3; i++)
+            av_freep(&priv->packet[i]);
+}
 
 static int
 vorbis_header (AVFormatContext * s, int idx)
@@ -359,5 +369,6 @@ const struct ogg_codec ff_vorbis_codec = {
     .magicsize = 7,
     .header = vorbis_header,
     .packet = vorbis_packet,
+    .cleanup= vorbis_cleanup,
     .nb_header = 3,
 };

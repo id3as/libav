@@ -51,7 +51,8 @@ static void latm_free_context(PayloadContext *data)
 
 static int latm_parse_packet(AVFormatContext *ctx, PayloadContext *data,
                              AVStream *st, AVPacket *pkt, uint32_t *timestamp,
-                             const uint8_t *buf, int len, int flags)
+                             const uint8_t *buf, int len, uint16_t seq,
+                             int flags)
 {
     int ret, cur_len;
 
@@ -156,8 +157,8 @@ static int parse_fmtp(AVStream *stream, PayloadContext *data,
     } else if (!strcmp(attr, "cpresent")) {
         int cpresent = atoi(value);
         if (cpresent != 0)
-            av_log_missing_feature(NULL, "RTP MP4A-LATM with in-band "
-                                         "configuration", 1);
+            avpriv_request_sample(NULL,
+                                  "RTP MP4A-LATM with in-band configuration");
     }
 
     return 0;

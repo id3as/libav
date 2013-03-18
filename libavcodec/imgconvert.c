@@ -32,6 +32,7 @@
 
 #include "avcodec.h"
 #include "dsputil.h"
+#include "imgconvert.h"
 #include "internal.h"
 #include "libavutil/colorspace.h"
 #include "libavutil/common.h"
@@ -135,24 +136,6 @@ static enum AVPixelFormat avcodec_find_best_pix_fmt1(enum AVPixelFormat *pix_fmt
     }
     return dst_pix_fmt;
 }
-
-#if FF_API_FIND_BEST_PIX_FMT
-enum AVPixelFormat avcodec_find_best_pix_fmt(int64_t pix_fmt_mask, enum AVPixelFormat src_pix_fmt,
-                              int has_alpha, int *loss_ptr)
-{
-    enum AVPixelFormat list[64];
-    int i, j = 0;
-
-    // test only the first 64 pixel formats to avoid undefined behaviour
-    for (i = 0; i < 64; i++) {
-        if (pix_fmt_mask & (1ULL << i))
-            list[j++] = i;
-    }
-    list[j] = AV_PIX_FMT_NONE;
-
-    return avcodec_find_best_pix_fmt2(list, src_pix_fmt, has_alpha, loss_ptr);
-}
-#endif /* FF_API_FIND_BEST_PIX_FMT */
 
 enum AVPixelFormat avcodec_find_best_pix_fmt2(enum AVPixelFormat *pix_fmt_list,
                                             enum AVPixelFormat src_pix_fmt,
@@ -365,6 +348,8 @@ int av_picture_pad(AVPicture *dst, const AVPicture *src, int height, int width,
     return 0;
 }
 
+#if FF_API_DEINTERLACE
+
 #if !HAVE_MMX_EXTERNAL
 /* filter parameters: [-1 4 2 4 -1] // 8 */
 static void deinterlace_line_c(uint8_t *dst,
@@ -523,3 +508,5 @@ int avpicture_deinterlace(AVPicture *dst, const AVPicture *src,
     emms_c();
     return 0;
 }
+
+#endif /* FF_API_DEINTERLACE */

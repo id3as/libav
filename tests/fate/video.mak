@@ -49,6 +49,9 @@ fate-bink-video: $(FATE_BINK_VIDEO)
 FATE_SAMPLES_AVCONV-$(call DEMDEC, BMV, BMV_VIDEO) += fate-bmv-video
 fate-bmv-video: CMD = framecrc -i $(SAMPLES)/bmv/SURFING-partial.BMV -pix_fmt rgb24 -an
 
+FATE_SAMPLES_AVCONV-$(call DEMDEC, MPEGPS, CAVS) += fate-cavs
+fate-cavs: CMD = framecrc -i $(SAMPLES)/cavs/cavs.mpg -an
+
 FATE_SAMPLES_AVCONV-$(call DEMDEC, CDG, CDGRAPHICS) += fate-cdgraphics
 fate-cdgraphics: CMD = framecrc -i $(SAMPLES)/cdgraphics/BrotherJohn.cdg -pix_fmt rgb24 -t 1
 
@@ -61,11 +64,11 @@ fate-corepng: CMD = framecrc -i $(SAMPLES)/png1/corepng-partial.avi
 FATE_SAMPLES_AVCONV-$(call DEMDEC, AVS, AVS) += fate-creatureshock-avs
 fate-creatureshock-avs: CMD = framecrc -i $(SAMPLES)/creatureshock-avs/OUTATIME.AVS -pix_fmt rgb24
 
-FATE_CVID-$(CONFIG_AVI_DEMUXER) += fate-cvid-partial
-fate-cvid-partial: CMD = framecrc -i $(SAMPLES)/cvid/laracroft-cinepak-partial.avi -an
-
 FATE_CVID-$(CONFIG_MOV_DEMUXER) += fate-cvid-palette
 fate-cvid-palette: CMD = framecrc -i $(SAMPLES)/cvid/catfight-cvid-pal8-partial.mov -pix_fmt rgb24 -an
+
+FATE_CVID-$(CONFIG_AVI_DEMUXER) += fate-cvid-partial
+fate-cvid-partial: CMD = framecrc -i $(SAMPLES)/cvid/laracroft-cinepak-partial.avi -an
 
 FATE_CVID-$(CONFIG_AVI_DEMUXER) += fate-cvid-grayscale
 fate-cvid-grayscale: CMD = framecrc -i $(SAMPLES)/cvid/pcitva15.avi -an
@@ -170,7 +173,7 @@ FATE_SAMPLES_AVCONV-$(call DEMDEC, MVI, MOTIONPIXELS) += fate-motionpixels
 fate-motionpixels: CMD = framecrc -i $(SAMPLES)/motion-pixels/INTRO-partial.MVI -an -pix_fmt rgb24 -vframes 111
 
 FATE_SAMPLES_AVCONV-$(call DEMDEC, MPEGTS, MPEG2VIDEO) += fate-mpeg2-field-enc
-fate-mpeg2-field-enc: CMD = framecrc -flags +bitexact -dct fastint -idct simple -i $(SAMPLES)/mpeg2/mpeg2_field_encoding.ts -an
+fate-mpeg2-field-enc: CMD = framecrc -flags +bitexact -idct simple -i $(SAMPLES)/mpeg2/mpeg2_field_encoding.ts -an -vframes 30
 
 # FIXME dropped frames in this test because of coarse timebase
 FATE_NUV += fate-nuv-rtjpeg
@@ -239,6 +242,9 @@ fate-v410dec: CMD = framecrc -i $(SAMPLES)/v410/lenav410.mov -pix_fmt yuv444p10l
 FATE_SAMPLES_AVCONV-$(call ENCDEC, V410 PGMYUV, AVI IMAGE2) += fate-v410enc
 fate-v410enc: tests/vsynth1/00.pgm
 fate-v410enc: CMD = md5 -f image2 -vcodec pgmyuv -i $(TARGET_PATH)/tests/vsynth1/%02d.pgm -flags +bitexact -vcodec v410 -f avi
+
+FATE_SAMPLES_AVCONV-$(call DEMDEC, SIFF, VB) += fate-vb
+fate-vb: CMD = framecrc -i $(SAMPLES)/SIFF/INTRO_B.VB -t 3 -pix_fmt rgb24 -an
 
 FATE_SAMPLES_AVCONV-$(call DEMDEC, AVI, VCR1) += fate-vcr1
 fate-vcr1: CMD = framecrc -i $(SAMPLES)/vcr1/VCR1test.avi -an

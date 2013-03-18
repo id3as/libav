@@ -23,6 +23,7 @@
 
 #include "libavformat/avformat.h"
 #include "libavcodec/avcodec.h"
+#include "libavutil/avstring.h"
 #include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/dict.h"
@@ -302,7 +303,7 @@ static void old_print_object_header(const char *name)
 
     str = p = av_strdup(name);
     while (*p) {
-        *p = toupper(*p);
+        *p = av_toupper(*p);
         p++;
     }
 
@@ -319,7 +320,7 @@ static void old_print_object_footer(const char *name)
 
     str = p = av_strdup(name);
     while (*p) {
-        *p = toupper(*p);
+        *p = av_toupper(*p);
         p++;
     }
 
@@ -583,7 +584,7 @@ static void show_stream(AVFormatContext *fmt_ctx, int stream_idx)
     const AVCodec *dec;
     const char *profile;
     char val_str[128];
-    AVRational display_aspect_ratio;
+    AVRational display_aspect_ratio, *sar = NULL;
     const AVPixFmtDescriptor *desc;
 
     probe_object_header("stream");
@@ -618,13 +619,16 @@ static void show_stream(AVFormatContext *fmt_ctx, int stream_idx)
             probe_int("width", dec_ctx->width);
             probe_int("height", dec_ctx->height);
             probe_int("has_b_frames", dec_ctx->has_b_frames);
-            if (dec_ctx->sample_aspect_ratio.num) {
+            if (dec_ctx->sample_aspect_ratio.num)
+                sar = &dec_ctx->sample_aspect_ratio;
+            else if (stream->sample_aspect_ratio.num)
+                sar = &stream->sample_aspect_ratio;
+
+            if (sar) {
                 probe_str("sample_aspect_ratio",
-                          rational_string(val_str, sizeof(val_str), ":",
-                          &dec_ctx->sample_aspect_ratio));
+                          rational_string(val_str, sizeof(val_str), ":", sar));
                 av_reduce(&display_aspect_ratio.num, &display_aspect_ratio.den,
-                          dec_ctx->width  * dec_ctx->sample_aspect_ratio.num,
-                          dec_ctx->height * dec_ctx->sample_aspect_ratio.den,
+                          dec_ctx->width  * sar->num, dec_ctx->height * sar->den,
                           1024*1024);
                 probe_str("display_aspect_ratio",
                           rational_string(val_str, sizeof(val_str), ":",

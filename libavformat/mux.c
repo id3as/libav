@@ -305,7 +305,7 @@ int avformat_write_header(AVFormatContext *s, AVDictionary **options)
             return ret;
     }
 
-    if ((ret = init_pts(s) < 0))
+    if ((ret = init_pts(s)) < 0)
         return ret;
 
     return 0;
@@ -420,7 +420,10 @@ void ff_interleave_add_packet(AVFormatContext *s, AVPacket *pkt,
 
     this_pktl      = av_mallocz(sizeof(AVPacketList));
     this_pktl->pkt = *pkt;
+#if FF_API_DESTRUCT_PACKET
     pkt->destruct  = NULL;           // do not free original but only the copy
+#endif
+    pkt->buf       = NULL;
     av_dup_packet(&this_pktl->pkt);  // duplicate the packet if it uses non-alloced memory
 
     if (s->streams[pkt->stream_index]->last_in_packet_buffer) {
@@ -491,15 +494,6 @@ int ff_interleave_packet_per_dts(AVFormatContext *s, AVPacket *out,
         return 0;
     }
 }
-
-#if FF_API_INTERLEAVE_PACKET
-int av_interleave_packet_per_dts(AVFormatContext *s, AVPacket *out,
-                                 AVPacket *pkt, int flush)
-{
-    return ff_interleave_packet_per_dts(s, out, pkt, flush);
-}
-
-#endif
 
 /**
  * Interleave an AVPacket correctly so it can be muxed.

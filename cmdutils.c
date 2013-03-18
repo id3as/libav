@@ -54,9 +54,9 @@
 #endif
 
 struct SwsContext *sws_opts;
-AVDictionary *format_opts, *codec_opts;
+AVDictionary *format_opts, *codec_opts, *resample_opts;
 
-static const int this_year = 2012;
+static const int this_year = 2013;
 
 void init_opts(void)
 {
@@ -74,6 +74,7 @@ void uninit_opts(void)
 #endif
     av_dict_free(&format_opts);
     av_dict_free(&codec_opts);
+    av_dict_free(&resample_opts);
 }
 
 void log_callback_help(void *ptr, int level, const char *fmt, va_list vl)
@@ -228,36 +229,14 @@ static inline void prepare_app_arguments(int *argc_ptr, char ***argv_ptr)
 }
 #endif /* HAVE_COMMANDLINETOARGVW */
 
-int parse_option(void *optctx, const char *opt, const char *arg,
-                 const OptionDef *options)
+static int write_option(void *optctx, const OptionDef *po, const char *opt,
+                        const char *arg)
 {
-    const OptionDef *po;
-    int bool_val = 1;
-    int *dstcount;
-    void *dst;
-
-    po = find_option(options, opt);
-    if (!po->name && opt[0] == 'n' && opt[1] == 'o') {
-        /* handle 'no' bool option */
-        po = find_option(options, opt + 2);
-        if ((po->name && (po->flags & OPT_BOOL)))
-            bool_val = 0;
-    }
-    if (!po->name)
-        po = find_option(options, "default");
-    if (!po->name) {
-        av_log(NULL, AV_LOG_ERROR, "Unrecognized option '%s'\n", opt);
-        return AVERROR(EINVAL);
-    }
-    if (po->flags & HAS_ARG && !arg) {
-        av_log(NULL, AV_LOG_ERROR, "Missing argument for option '%s'\n", opt);
-        return AVERROR(EINVAL);
-    }
-
     /* new-style options contain an offset into optctx, old-style address of
      * a global var*/
-    dst = po->flags & (OPT_OFFSET | OPT_SPEC) ? (uint8_t *)optctx + po->u.off
-                                              : po->u.dst_ptr;
+    void *dst = po->flags & (OPT_OFFSET | OPT_SPEC) ?
+                (uint8_t *)optctx + po->u.off : po->u.dst_ptr;
+    int *dstcount;
 
     if (po->flags & OPT_SPEC) {
         SpecifierOpt **so = dst;
@@ -274,9 +253,7 @@ int parse_option(void *optctx, const char *opt, const char *arg,
         str = av_strdup(arg);
         av_freep(dst);
         *(char **)dst = str;
-    } else if (po->flags & OPT_BOOL) {
-        *(int *)dst = bool_val;
-    } else if (po->flags & OPT_INT) {
+    } else if (po->flags & OPT_BOOL || po->flags & OPT_INT) {
         *(int *)dst = parse_number_or_die(opt, arg, OPT_INT64, INT_MIN, INT_MAX);
     } else if (po->flags & OPT_INT64) {
         *(int64_t *)dst = parse_number_or_die(opt, arg, OPT_INT64, INT64_MIN, INT64_MAX);
@@ -296,6 +273,40 @@ int parse_option(void *optctx, const char *opt, const char *arg,
     }
     if (po->flags & OPT_EXIT)
         exit(0);
+
+    return 0;
+}
+
+int parse_option(void *optctx, const char *opt, const char *arg,
+                 const OptionDef *options)
+{
+    const OptionDef *po;
+    int ret;
+
+    po = find_option(options, opt);
+    if (!po->name && opt[0] == 'n' && opt[1] == 'o') {
+        /* handle 'no' bool option */
+        po = find_option(options, opt + 2);
+        if ((po->name && (po->flags & OPT_BOOL)))
+            arg = "0";
+    } else if (po->flags & OPT_BOOL)
+        arg = "1";
+
+    if (!po->name)
+        po = find_option(options, "default");
+    if (!po->name) {
+        av_log(NULL, AV_LOG_ERROR, "Unrecognized option '%s'\n", opt);
+        return AVERROR(EINVAL);
+    }
+    if (po->flags & HAS_ARG && !arg) {
+        av_log(NULL, AV_LOG_ERROR, "Missing argument for option '%s'\n", opt);
+        return AVERROR(EINVAL);
+    }
+
+    ret = write_option(optctx, po, opt, arg);
+    if (ret < 0)
+        return ret;
+
     return !!(po->flags & HAS_ARG);
 }
 
@@ -328,6 +339,39 @@ void parse_options(void *optctx, int argc, char **argv, const OptionDef *options
                 parse_arg_function(optctx, opt);
         }
     }
+}
+
+int parse_optgroup(void *optctx, OptionGroup *g)
+{
+    int i, ret;
+
+    av_log(NULL, AV_LOG_DEBUG, "Parsing a group of options: %s %s.\n",
+           g->group_def->name, g->arg);
+
+    for (i = 0; i < g->nb_opts; i++) {
+        Option *o = &g->opts[i];
+
+        if (g->group_def->flags &&
+            !(g->group_def->flags & o->opt->flags)) {
+            av_log(NULL, AV_LOG_ERROR, "Option %s (%s) cannot be applied to "
+                   "%s %s -- you are trying to apply an input option to an "
+                   "output file or vice versa. Move this option before the "
+                   "file it belongs to.\n", o->key, o->opt->help,
+                   g->group_def->name, g->arg);
+            return AVERROR(EINVAL);
+        }
+
+        av_log(NULL, AV_LOG_DEBUG, "Applying option %s (%s) with argument %s.\n",
+               o->key, o->opt->help, o->val);
+
+        ret = write_option(optctx, o->opt, o->key, o->val);
+        if (ret < 0)
+            return ret;
+    }
+
+    av_log(NULL, AV_LOG_DEBUG, "Successfully parsed a group of options.\n");
+
+    return 0;
 }
 
 int locate_option(int argc, char **argv, const OptionDef *options,
@@ -372,6 +416,9 @@ int opt_default(void *optctx, const char *opt, const char *arg)
     char opt_stripped[128];
     const char *p;
     const AVClass *cc = avcodec_get_class(), *fc = avformat_get_class();
+#if CONFIG_AVRESAMPLE
+    const AVClass *rc = avresample_get_class();
+#endif
 #if CONFIG_SWSCALE
     const AVClass *sc = sws_get_class();
 #endif
@@ -388,6 +435,11 @@ int opt_default(void *optctx, const char *opt, const char *arg)
     else if ((o = av_opt_find(&fc, opt, NULL, 0,
                               AV_OPT_SEARCH_CHILDREN | AV_OPT_SEARCH_FAKE_OBJ)))
         av_dict_set(&format_opts, opt, arg, FLAGS);
+#if CONFIG_AVRESAMPLE
+    else if ((o = av_opt_find(&rc, opt, NULL, 0,
+                              AV_OPT_SEARCH_CHILDREN | AV_OPT_SEARCH_FAKE_OBJ)))
+        av_dict_set(&resample_opts, opt, arg, FLAGS);
+#endif
 #if CONFIG_SWSCALE
     else if ((o = av_opt_find(&sc, opt, NULL, 0,
                               AV_OPT_SEARCH_CHILDREN | AV_OPT_SEARCH_FAKE_OBJ))) {
@@ -402,8 +454,226 @@ int opt_default(void *optctx, const char *opt, const char *arg)
 
     if (o)
         return 0;
-    av_log(NULL, AV_LOG_ERROR, "Unrecognized option '%s'\n", opt);
     return AVERROR_OPTION_NOT_FOUND;
+}
+
+/*
+ * Check whether given option is a group separator.
+ *
+ * @return index of the group definition that matched or -1 if none
+ */
+static int match_group_separator(const OptionGroupDef *groups, int nb_groups,
+                                 const char *opt)
+{
+    int i;
+
+    for (i = 0; i < nb_groups; i++) {
+        const OptionGroupDef *p = &groups[i];
+        if (p->sep && !strcmp(p->sep, opt))
+            return i;
+    }
+
+    return -1;
+}
+
+/*
+ * Finish parsing an option group.
+ *
+ * @param group_idx which group definition should this group belong to
+ * @param arg argument of the group delimiting option
+ */
+static void finish_group(OptionParseContext *octx, int group_idx,
+                         const char *arg)
+{
+    OptionGroupList *l = &octx->groups[group_idx];
+    OptionGroup *g;
+
+    GROW_ARRAY(l->groups, l->nb_groups);
+    g = &l->groups[l->nb_groups - 1];
+
+    *g             = octx->cur_group;
+    g->arg         = arg;
+    g->group_def   = l->group_def;
+#if CONFIG_SWSCALE
+    g->sws_opts    = sws_opts;
+#endif
+    g->codec_opts  = codec_opts;
+    g->format_opts = format_opts;
+    g->resample_opts = resample_opts;
+
+    codec_opts  = NULL;
+    format_opts = NULL;
+    resample_opts = NULL;
+#if CONFIG_SWSCALE
+    sws_opts    = NULL;
+#endif
+    init_opts();
+
+    memset(&octx->cur_group, 0, sizeof(octx->cur_group));
+}
+
+/*
+ * Add an option instance to currently parsed group.
+ */
+static void add_opt(OptionParseContext *octx, const OptionDef *opt,
+                    const char *key, const char *val)
+{
+    int global = !(opt->flags & (OPT_PERFILE | OPT_SPEC | OPT_OFFSET));
+    OptionGroup *g = global ? &octx->global_opts : &octx->cur_group;
+
+    GROW_ARRAY(g->opts, g->nb_opts);
+    g->opts[g->nb_opts - 1].opt = opt;
+    g->opts[g->nb_opts - 1].key = key;
+    g->opts[g->nb_opts - 1].val = val;
+}
+
+static void init_parse_context(OptionParseContext *octx,
+                               const OptionGroupDef *groups, int nb_groups)
+{
+    static const OptionGroupDef global_group = { "global" };
+    int i;
+
+    memset(octx, 0, sizeof(*octx));
+
+    octx->nb_groups = nb_groups;
+    octx->groups    = av_mallocz(sizeof(*octx->groups) * octx->nb_groups);
+    if (!octx->groups)
+        exit(1);
+
+    for (i = 0; i < octx->nb_groups; i++)
+        octx->groups[i].group_def = &groups[i];
+
+    octx->global_opts.group_def = &global_group;
+    octx->global_opts.arg       = "";
+
+    init_opts();
+}
+
+void uninit_parse_context(OptionParseContext *octx)
+{
+    int i, j;
+
+    for (i = 0; i < octx->nb_groups; i++) {
+        OptionGroupList *l = &octx->groups[i];
+
+        for (j = 0; j < l->nb_groups; j++) {
+            av_freep(&l->groups[j].opts);
+            av_dict_free(&l->groups[j].codec_opts);
+            av_dict_free(&l->groups[j].format_opts);
+            av_dict_free(&l->groups[j].resample_opts);
+#if CONFIG_SWSCALE
+            sws_freeContext(l->groups[j].sws_opts);
+#endif
+        }
+        av_freep(&l->groups);
+    }
+    av_freep(&octx->groups);
+
+    av_freep(&octx->cur_group.opts);
+    av_freep(&octx->global_opts.opts);
+
+    uninit_opts();
+}
+
+int split_commandline(OptionParseContext *octx, int argc, char *argv[],
+                      const OptionDef *options,
+                      const OptionGroupDef *groups, int nb_groups)
+{
+    int optindex = 1;
+
+    /* perform system-dependent conversions for arguments list */
+    prepare_app_arguments(&argc, &argv);
+
+    init_parse_context(octx, groups, nb_groups);
+    av_log(NULL, AV_LOG_DEBUG, "Splitting the commandline.\n");
+
+    while (optindex < argc) {
+        const char *opt = argv[optindex++], *arg;
+        const OptionDef *po;
+        int ret;
+
+        av_log(NULL, AV_LOG_DEBUG, "Reading option '%s' ...", opt);
+
+        /* unnamed group separators, e.g. output filename */
+        if (opt[0] != '-' || !opt[1]) {
+            finish_group(octx, 0, opt);
+            av_log(NULL, AV_LOG_DEBUG, " matched as %s.\n", groups[0].name);
+            continue;
+        }
+        opt++;
+
+#define GET_ARG(arg)                                                           \
+do {                                                                           \
+    arg = argv[optindex++];                                                    \
+    if (!arg) {                                                                \
+        av_log(NULL, AV_LOG_ERROR, "Missing argument for option '%s'.\n", opt);\
+        return AVERROR(EINVAL);                                                \
+    }                                                                          \
+} while (0)
+
+        /* named group separators, e.g. -i */
+        if ((ret = match_group_separator(groups, nb_groups, opt)) >= 0) {
+            GET_ARG(arg);
+            finish_group(octx, ret, arg);
+            av_log(NULL, AV_LOG_DEBUG, " matched as %s with argument '%s'.\n",
+                   groups[ret].name, arg);
+            continue;
+        }
+
+        /* normal options */
+        po = find_option(options, opt);
+        if (po->name) {
+            if (po->flags & OPT_EXIT) {
+                /* optional argument, e.g. -h */
+                arg = argv[optindex++];
+            } else if (po->flags & HAS_ARG) {
+                GET_ARG(arg);
+            } else {
+                arg = "1";
+            }
+
+            add_opt(octx, po, opt, arg);
+            av_log(NULL, AV_LOG_DEBUG, " matched as option '%s' (%s) with "
+                   "argument '%s'.\n", po->name, po->help, arg);
+            continue;
+        }
+
+        /* AVOptions */
+        if (argv[optindex]) {
+            ret = opt_default(NULL, opt, argv[optindex]);
+            if (ret >= 0) {
+                av_log(NULL, AV_LOG_DEBUG, " matched as AVOption '%s' with "
+                       "argument '%s'.\n", opt, argv[optindex]);
+                optindex++;
+                continue;
+            } else if (ret != AVERROR_OPTION_NOT_FOUND) {
+                av_log(NULL, AV_LOG_ERROR, "Error parsing option '%s' "
+                       "with argument '%s'.\n", opt, argv[optindex]);
+                return ret;
+            }
+        }
+
+        /* boolean -nofoo options */
+        if (opt[0] == 'n' && opt[1] == 'o' &&
+            (po = find_option(options, opt + 2)) &&
+            po->name && po->flags & OPT_BOOL) {
+            add_opt(octx, po, opt, "0");
+            av_log(NULL, AV_LOG_DEBUG, " matched as option '%s' (%s) with "
+                   "argument 0.\n", po->name, po->help);
+            continue;
+        }
+
+        av_log(NULL, AV_LOG_ERROR, "Unrecognized option '%s'.\n", opt);
+        return AVERROR_OPTION_NOT_FOUND;
+    }
+
+    if (octx->cur_group.nb_opts || codec_opts || format_opts || resample_opts)
+        av_log(NULL, AV_LOG_WARNING, "Trailing options were found on the "
+               "commandline.\n");
+
+    av_log(NULL, AV_LOG_DEBUG, "Finished splitting the commandline.\n");
+
+    return 0;
 }
 
 int opt_loglevel(void *optctx, const char *opt, const char *arg)
@@ -1029,7 +1299,7 @@ int show_help(void *optctx, const char *opt, const char *arg)
 int read_yesno(void)
 {
     int c = getchar();
-    int yesno = (toupper(c) == 'Y');
+    int yesno = (av_toupper(c) == 'Y');
 
     while (c != '\n' && c != EOF)
         c = getchar();
@@ -1202,10 +1472,8 @@ AVDictionary *filter_codec_opts(AVDictionary *opts, enum AVCodecID codec_id,
     if (!codec)
         codec            = s->oformat ? avcodec_find_encoder(codec_id)
                                       : avcodec_find_decoder(codec_id);
-    if (!codec)
-        return NULL;
 
-    switch (codec->type) {
+    switch (st->codec->codec_type) {
     case AVMEDIA_TYPE_VIDEO:
         prefix  = 'v';
         flags  |= AV_OPT_FLAG_VIDEO_PARAM;
@@ -1284,136 +1552,4 @@ void *grow_array(void *array, int elem_size, int *size, int new_size)
         return tmp;
     }
     return array;
-}
-
-static int alloc_buffer(FrameBuffer **pool, AVCodecContext *s, FrameBuffer **pbuf)
-{
-    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(s->pix_fmt);
-    FrameBuffer *buf;
-    int i, ret;
-    int pixel_size;
-    int h_chroma_shift, v_chroma_shift;
-    int edge = 32; // XXX should be avcodec_get_edge_width(), but that fails on svq1
-    int w = s->width, h = s->height;
-
-    if (!desc)
-        return AVERROR(EINVAL);
-    pixel_size = desc->comp[0].step_minus1 + 1;
-
-    buf = av_mallocz(sizeof(*buf));
-    if (!buf)
-        return AVERROR(ENOMEM);
-
-    if (!(s->flags & CODEC_FLAG_EMU_EDGE)) {
-        w += 2*edge;
-        h += 2*edge;
-    }
-
-    avcodec_align_dimensions(s, &w, &h);
-    if ((ret = av_image_alloc(buf->base, buf->linesize, w, h,
-                              s->pix_fmt, 32)) < 0) {
-        av_freep(&buf);
-        return ret;
-    }
-    /* XXX this shouldn't be needed, but some tests break without this line
-     * those decoders are buggy and need to be fixed.
-     * the following tests fail:
-     * cdgraphics, ansi, aasc, fraps-v1, qtrle-1bit
-     */
-    memset(buf->base[0], 128, ret);
-
-    av_pix_fmt_get_chroma_sub_sample(s->pix_fmt,
-                                     &h_chroma_shift, &v_chroma_shift);
-
-    for (i = 0; i < FF_ARRAY_ELEMS(buf->data); i++) {
-        const int h_shift = i==0 ? 0 : h_chroma_shift;
-        const int v_shift = i==0 ? 0 : v_chroma_shift;
-        if (s->flags & CODEC_FLAG_EMU_EDGE)
-            buf->data[i] = buf->base[i];
-        else if (buf->base[i])
-            buf->data[i] = buf->base[i] +
-                           FFALIGN((buf->linesize[i]*edge >> v_shift) +
-                                   (pixel_size*edge >> h_shift), 32);
-    }
-    buf->w       = s->width;
-    buf->h       = s->height;
-    buf->pix_fmt = s->pix_fmt;
-    buf->pool    = pool;
-
-    *pbuf = buf;
-    return 0;
-}
-
-int codec_get_buffer(AVCodecContext *s, AVFrame *frame)
-{
-    FrameBuffer **pool = s->opaque;
-    FrameBuffer *buf;
-    int ret, i;
-
-    if (!*pool && (ret = alloc_buffer(pool, s, pool)) < 0)
-        return ret;
-
-    buf              = *pool;
-    *pool            = buf->next;
-    buf->next        = NULL;
-    if (buf->w != s->width || buf->h != s->height || buf->pix_fmt != s->pix_fmt) {
-        av_freep(&buf->base[0]);
-        av_free(buf);
-        if ((ret = alloc_buffer(pool, s, &buf)) < 0)
-            return ret;
-    }
-    buf->refcount++;
-
-    frame->opaque        = buf;
-    frame->type          = FF_BUFFER_TYPE_USER;
-    frame->extended_data = frame->data;
-
-    for (i = 0; i < FF_ARRAY_ELEMS(buf->data); i++) {
-        frame->base[i]     = buf->base[i];  // XXX h264.c uses base though it shouldn't
-        frame->data[i]     = buf->data[i];
-        frame->linesize[i] = buf->linesize[i];
-    }
-
-    return 0;
-}
-
-static void unref_buffer(FrameBuffer *buf)
-{
-    FrameBuffer **pool = buf->pool;
-
-    av_assert0(buf->refcount);
-    buf->refcount--;
-    if (!buf->refcount) {
-        buf->next = *pool;
-        *pool = buf;
-    }
-}
-
-void codec_release_buffer(AVCodecContext *s, AVFrame *frame)
-{
-    FrameBuffer *buf = frame->opaque;
-    int i;
-
-    for (i = 0; i < FF_ARRAY_ELEMS(frame->data); i++)
-        frame->data[i] = NULL;
-
-    unref_buffer(buf);
-}
-
-void filter_release_buffer(AVFilterBuffer *fb)
-{
-    FrameBuffer *buf = fb->priv;
-    av_free(fb);
-    unref_buffer(buf);
-}
-
-void free_buffer_pool(FrameBuffer **pool)
-{
-    FrameBuffer *buf = *pool;
-    while (buf) {
-        *pool = buf->next;
-        av_freep(&buf->base[0]);
-        av_free(buf);
-        buf = *pool;
-    }
 }

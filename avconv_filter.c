@@ -23,8 +23,12 @@
 #include "libavfilter/avfilter.h"
 #include "libavfilter/avfiltergraph.h"
 
+#include "libavresample/avresample.h"
+
 #include "libavutil/avassert.h"
+#include "libavutil/avstring.h"
 #include "libavutil/channel_layout.h"
+#include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/pixfmt.h"
 #include "libavutil/samplefmt.h"
@@ -37,7 +41,7 @@ static char *choose_ ## var ## s(OutputStream *ost)                            \
     if (ost->st->codec->var != none) {                                         \
         get_name(ost->st->codec->var);                                         \
         return av_strdup(name);                                                \
-    } else if (ost->enc->supported_list) {                                     \
+    } else if (ost->enc && ost->enc->supported_list) {                         \
         const type *p;                                                         \
         AVIOContext *s = NULL;                                                 \
         uint8_t *ret;                                                          \
@@ -77,8 +81,7 @@ FilterGraph *init_simple_filtergraph(InputStream *ist, OutputStream *ost)
         exit(1);
     fg->index = nb_filtergraphs;
 
-    fg->outputs = grow_array(fg->outputs, sizeof(*fg->outputs), &fg->nb_outputs,
-                             fg->nb_outputs + 1);
+    GROW_ARRAY(fg->outputs, fg->nb_outputs);
     if (!(fg->outputs[0] = av_mallocz(sizeof(*fg->outputs[0]))))
         exit(1);
     fg->outputs[0]->ost   = ost;
@@ -86,19 +89,16 @@ FilterGraph *init_simple_filtergraph(InputStream *ist, OutputStream *ost)
 
     ost->filter = fg->outputs[0];
 
-    fg->inputs = grow_array(fg->inputs, sizeof(*fg->inputs), &fg->nb_inputs,
-                            fg->nb_inputs + 1);
+    GROW_ARRAY(fg->inputs, fg->nb_inputs);
     if (!(fg->inputs[0] = av_mallocz(sizeof(*fg->inputs[0]))))
         exit(1);
     fg->inputs[0]->ist   = ist;
     fg->inputs[0]->graph = fg;
 
-    ist->filters = grow_array(ist->filters, sizeof(*ist->filters),
-                              &ist->nb_filters, ist->nb_filters + 1);
+    GROW_ARRAY(ist->filters, ist->nb_filters);
     ist->filters[ist->nb_filters - 1] = fg->inputs[0];
 
-    filtergraphs = grow_array(filtergraphs, sizeof(*filtergraphs),
-                              &nb_filtergraphs, nb_filtergraphs + 1);
+    GROW_ARRAY(filtergraphs, nb_filtergraphs);
     filtergraphs[nb_filtergraphs - 1] = fg;
 
     return fg;
@@ -164,15 +164,13 @@ static void init_input_filter(FilterGraph *fg, AVFilterInOut *in)
     ist->decoding_needed = 1;
     ist->st->discard = AVDISCARD_NONE;
 
-    fg->inputs = grow_array(fg->inputs, sizeof(*fg->inputs),
-                            &fg->nb_inputs, fg->nb_inputs + 1);
+    GROW_ARRAY(fg->inputs, fg->nb_inputs);
     if (!(fg->inputs[fg->nb_inputs - 1] = av_mallocz(sizeof(*fg->inputs[0]))))
         exit(1);
     fg->inputs[fg->nb_inputs - 1]->ist   = ist;
     fg->inputs[fg->nb_inputs - 1]->graph = fg;
 
-    ist->filters = grow_array(ist->filters, sizeof(*ist->filters),
-                              &ist->nb_filters, ist->nb_filters + 1);
+    GROW_ARRAY(ist->filters, ist->nb_filters);
     ist->filters[ist->nb_filters - 1] = fg->inputs[fg->nb_inputs - 1];
 }
 
@@ -507,9 +505,20 @@ int configure_filtergraph(FilterGraph *fg)
 
     if (simple) {
         OutputStream *ost = fg->outputs[0]->ost;
-        char args[255];
+        char args[512];
+        AVDictionaryEntry *e = NULL;
+
         snprintf(args, sizeof(args), "flags=0x%X", (unsigned)ost->sws_flags);
         fg->graph->scale_sws_opts = av_strdup(args);
+
+        args[0] = '\0';
+        while ((e = av_dict_get(fg->outputs[0]->ost->resample_opts, "", e,
+                                AV_DICT_IGNORE_SUFFIX))) {
+            av_strlcatf(args, sizeof(args), "%s=%s:", e->key, e->value);
+        }
+        if (strlen(args))
+            args[strlen(args) - 1] = '\0';
+        fg->graph->resample_lavr_opts = av_strdup(args);
     }
 
     if ((ret = avfilter_graph_parse2(fg->graph, graph_desc, &inputs, &outputs)) < 0)
@@ -541,8 +550,7 @@ int configure_filtergraph(FilterGraph *fg)
     } else {
         /* wait until output mappings are processed */
         for (cur = outputs; cur;) {
-            fg->outputs = grow_array(fg->outputs, sizeof(*fg->outputs),
-                                     &fg->nb_outputs, fg->nb_outputs + 1);
+            GROW_ARRAY(fg->outputs, fg->nb_outputs);
             if (!(fg->outputs[fg->nb_outputs - 1] = av_mallocz(sizeof(*fg->outputs[0]))))
                 exit(1);
             fg->outputs[fg->nb_outputs - 1]->graph   = fg;

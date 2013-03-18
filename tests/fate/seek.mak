@@ -1,5 +1,13 @@
 # files from fate-acodec
 
+FATE_SEEK_ACODEC-$(call ENCDEC, ADPCM_IMA_QT,  AIFF)    += adpcm-ima_qt
+FATE_SEEK_ACODEC-$(call ENCDEC, ADPCM_IMA_WAV, WAV)     += adpcm-ima_wav
+FATE_SEEK_ACODEC-$(call ENCDEC, ADPCM_MS,      WAV)     += adpcm-ms
+FATE_SEEK_ACODEC-$(call ENCDEC, ADPCM_SWF,     FLV)     += adpcm-swf
+FATE_SEEK_ACODEC-$(call ENCDEC, ADPCM_YAMAHA,  WAV)     += adpcm-yamaha
+FATE_SEEK_ACODEC-$(call ENCDEC, ALAC,          MOV)     += alac
+FATE_SEEK_ACODEC-$(call ENCDEC, FLAC,          FLAC)    += flac
+FATE_SEEK_ACODEC-$(call ENCDEC, MP2,           MP2 MP3) += mp2
 FATE_SEEK_ACODEC-$(call ENCDEC, PCM_ALAW,      WAV)     += pcm-alaw
 FATE_SEEK_ACODEC-$(call ENCDEC, PCM_MULAW,     WAV)     += pcm-mulaw
 FATE_SEEK_ACODEC-$(call ENCDEC, PCM_S8,        MOV)     += pcm-s8
@@ -14,14 +22,6 @@ FATE_SEEK_ACODEC-$(call ENCDEC, PCM_F32BE,     AU)      += pcm-f32be
 FATE_SEEK_ACODEC-$(call ENCDEC, PCM_F32LE,     WAV)     += pcm-f32le
 FATE_SEEK_ACODEC-$(call ENCDEC, PCM_F64BE,     AU)      += pcm-f64be
 FATE_SEEK_ACODEC-$(call ENCDEC, PCM_F64LE,     WAV)     += pcm-f64le
-FATE_SEEK_ACODEC-$(call ENCDEC, ADPCM_IMA_QT,  AIFF)    += adpcm-ima_qt
-FATE_SEEK_ACODEC-$(call ENCDEC, ADPCM_IMA_WAV, WAV)     += adpcm-ima_wav
-FATE_SEEK_ACODEC-$(call ENCDEC, ADPCM_MS,      WAV)     += adpcm-ms
-FATE_SEEK_ACODEC-$(call ENCDEC, ADPCM_SWF,     FLV)     += adpcm-swf
-FATE_SEEK_ACODEC-$(call ENCDEC, ADPCM_YAMAHA,  WAV)     += adpcm-yamaha
-FATE_SEEK_ACODEC-$(call ENCDEC, ALAC,          MOV)     += alac
-FATE_SEEK_ACODEC-$(call ENCDEC, FLAC,          FLAC)    += flac
-FATE_SEEK_ACODEC-$(call ENCDEC, MP2,           MP2 MP3) += mp2
 
 fate-seek-acodec-adpcm-ima_qt:  SRC = fate/acodec-adpcm-ima_qt.aiff
 fate-seek-acodec-adpcm-ima_wav: SRC = fate/acodec-adpcm-ima_wav.wav
@@ -89,8 +89,6 @@ FATE_SEEK_VSYNTH2-$(call ENCDEC, RAWVIDEO,      AVI)     += rgb
 FATE_SEEK_VSYNTH2-$(call ENCDEC, ROQ,           ROQ)     += roqvideo
 FATE_SEEK_VSYNTH2-$(call ENCDEC, RV10,          RM)      += rv10
 FATE_SEEK_VSYNTH2-$(call ENCDEC, RV20,          RM)      += rv20
-FATE_SEEK_VSYNTH2-$(call ENCDEC, SNOW,          AVI)     += snow
-FATE_SEEK_VSYNTH2-$(call ENCDEC, SNOW,          AVI)     += snow-ll
 FATE_SEEK_VSYNTH2-$(call ENCDEC, SVQ1,          MOV)     += svq1
 FATE_SEEK_VSYNTH2-$(call ENCDEC, WMV1,          AVI)     += wmv1
 FATE_SEEK_VSYNTH2-$(call ENCDEC, WMV2,          AVI)     += wmv2

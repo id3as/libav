@@ -55,6 +55,7 @@ const AVCodecTag ff_codec_bmp_tags[] = {
     { AV_CODEC_ID_MPEG4,        MKTAG('M', 'P', '4', 'S') },
     { AV_CODEC_ID_MPEG4,        MKTAG('M', '4', 'S', '2') },
     { AV_CODEC_ID_MPEG4,        MKTAG( 4 ,  0 ,  0 ,  0 ) }, /* some broken avi use this */
+    { AV_CODEC_ID_MPEG4,        MKTAG('Z', 'M', 'P', '4') }, /* some broken avi use this */
     { AV_CODEC_ID_MPEG4,        MKTAG('D', 'I', 'V', '1') },
     { AV_CODEC_ID_MPEG4,        MKTAG('B', 'L', 'Z', '0') },
     { AV_CODEC_ID_MPEG4,        MKTAG('m', 'p', '4', 'v') },
@@ -231,7 +232,6 @@ const AVCodecTag ff_codec_bmp_tags[] = {
     { AV_CODEC_ID_TRUEMOTION1,  MKTAG('P', 'V', 'E', 'Z') },
     { AV_CODEC_ID_MSZH,         MKTAG('M', 'S', 'Z', 'H') },
     { AV_CODEC_ID_ZLIB,         MKTAG('Z', 'L', 'I', 'B') },
-    { AV_CODEC_ID_SNOW,         MKTAG('S', 'N', 'O', 'W') },
     { AV_CODEC_ID_4XM,          MKTAG('4', 'X', 'M', 'V') },
     { AV_CODEC_ID_FLV1,         MKTAG('F', 'L', 'V', '1') },
     { AV_CODEC_ID_FLASHSV,      MKTAG('F', 'S', 'V', '1') },

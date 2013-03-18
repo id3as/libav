@@ -43,17 +43,24 @@ $(HOSTPROGS): %$(HOSTEXESUF): %.o
 	$(HOSTLD) $(HOSTLDFLAGS) $(HOSTLD_O) $< $(HOSTLIBS)
 
 $(OBJS):     | $(sort $(dir $(OBJS)))
+$(HOBJS):    | $(sort $(dir $(HOBJS)))
 $(HOSTOBJS): | $(sort $(dir $(HOSTOBJS)))
 $(TESTOBJS): | $(sort $(dir $(TESTOBJS)))
 $(TOOLOBJS): | tools
 
-OBJDIRS := $(OBJDIRS) $(dir $(OBJS) $(HOSTOBJS) $(TESTOBJS))
+OBJDIRS := $(OBJDIRS) $(dir $(OBJS) $(HOBJS) $(HOSTOBJS) $(TESTOBJS))
 
 CLEANSUFFIXES     = *.d *.o *~ *.h.c *.map *.ver
 DISTCLEANSUFFIXES = *.pc
 LIBSUFFIXES       = *.a *.lib *.so *.so.* *.dylib *.dll *.def *.dll.a
 
+define RULES
 clean::
 	$(RM) $(OBJS) $(OBJS:.o=.d)
+	$(RM) $(HOSTPROGS)
+	$(RM) $(TOOLS)
+endef
+
+$(eval $(RULES))
 
 -include $(wildcard $(OBJS:.o=.d) $(HOSTOBJS:.o=.d) $(TESTOBJS:.o=.d) $(HOBJS:.o=.d))

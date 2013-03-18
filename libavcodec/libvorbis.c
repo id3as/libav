@@ -162,9 +162,6 @@ static av_cold int oggvorbis_encode_close(AVCodecContext *avctx)
 
     av_fifo_free(s->pkt_fifo);
     ff_af_queue_close(&s->afq);
-#if FF_API_OLD_ENCODE_AUDIO
-    av_freep(&avctx->coded_frame);
-#endif
     av_freep(&avctx->extradata);
 
     return 0;
@@ -241,14 +238,6 @@ static av_cold int oggvorbis_encode_init(AVCodecContext *avctx)
         goto error;
     }
 
-#if FF_API_OLD_ENCODE_AUDIO
-    avctx->coded_frame = avcodec_alloc_frame();
-    if (!avctx->coded_frame) {
-        ret = AVERROR(ENOMEM);
-        goto error;
-    }
-#endif
-
     return 0;
 error:
     oggvorbis_encode_close(avctx);
@@ -279,7 +268,7 @@ static int oggvorbis_encode_frame(AVCodecContext *avctx, AVPacket *avpkt,
             av_log(avctx, AV_LOG_ERROR, "error in vorbis_analysis_wrote()\n");
             return vorbis_error_to_averror(ret);
         }
-        if ((ret = ff_af_queue_add(&s->afq, frame) < 0))
+        if ((ret = ff_af_queue_add(&s->afq, frame)) < 0)
             return ret;
     } else {
         if (!s->eof)

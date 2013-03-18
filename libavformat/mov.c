@@ -718,7 +718,7 @@ static int mov_read_mdhd(MOVContext *c, AVIOContext *pb, MOVAtom atom)
 
     version = avio_r8(pb);
     if (version > 1) {
-        av_log_ask_for_sample(c, "unsupported version %d\n", version);
+        avpriv_request_sample(c->fc, "Version %d", version);
         return AVERROR_PATCHWELCOME;
     }
     avio_rb24(pb); /* flags */
@@ -1171,6 +1171,10 @@ int ff_mov_read_stsd_entries(MOVContext *c, AVIOContext *pb, int entries)
             /* codec_tag YV12 triggers an UV swap in rawdec.c */
             if (!memcmp(st->codec->codec_name, "Planar Y'CbCr 8-bit 4:2:0", 25))
                 st->codec->codec_tag=MKTAG('I', '4', '2', '0');
+            /* Flash Media Server uses tag H263 with Sorenson Spark */
+            if (format == MKTAG('H','2','6','3') &&
+                !memcmp(st->codec->codec_name, "Sorenson H263", 13))
+                st->codec->codec_id = AV_CODEC_ID_FLV1;
 
             st->codec->bits_per_coded_sample = avio_rb16(pb); /* depth */
             color_table_id = avio_rb16(pb); /* colortable id */
@@ -2057,12 +2061,6 @@ static int mov_read_trak(MOVContext *c, AVIOContext *pb, MOVAtom atom)
         if (st->duration != AV_NOPTS_VALUE)
             av_reduce(&st->avg_frame_rate.num, &st->avg_frame_rate.den,
                       sc->time_scale*st->nb_frames, st->duration, INT_MAX);
-
-#if FF_API_R_FRAME_RATE
-        if (sc->stts_count == 1 || (sc->stts_count == 2 && sc->stts_data[1].count == 1))
-            av_reduce(&st->r_frame_rate.num, &st->r_frame_rate.den,
-                      sc->time_scale, sc->stts_data[0].duration, INT_MAX);
-#endif
     }
 
     switch (st->codec->codec_id) {
