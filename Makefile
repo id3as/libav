@@ -22,14 +22,14 @@ endif
 
 ALLFFLIBS = avcodec avdevice avfilter avformat avresample avutil swscale
 
-IFLAGS     := -I. -I$(SRC_PATH)
+IFLAGS     := -I. -I$(SRC_PATH) -I/Users/steve/src/demo_codec_sdk_osx_x64_release/include
 CPPFLAGS   := $(IFLAGS) $(CPPFLAGS)
 CFLAGS     += $(ECFLAGS)
 CCFLAGS     = $(CPPFLAGS) $(CFLAGS)
 ASFLAGS    := $(CPPFLAGS) $(ASFLAGS)
 YASMFLAGS  += $(IFLAGS:%=%/) -Pconfig.asm
 HOSTCCFLAGS = $(IFLAGS) $(HOSTCPPFLAGS) $(HOSTCFLAGS)
-LDFLAGS    := $(ALLFFLIBS:%=$(LD_PATH)lib%) $(LDFLAGS)
+LDFLAGS    := $(ALLFFLIBS:%=$(LD_PATH)lib%) $(LDFLAGS) -ldemo_enc_vc1
 
 define COMPILE
 	$(call $(1)DEP,$(1))

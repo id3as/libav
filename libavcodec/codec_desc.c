@@ -1616,6 +1616,15 @@ static const AVCodecDescriptor codec_descriptors[] = {
         .props     = AV_CODEC_PROP_LOSSY,
     },
 
+    /* id3as */
+    {
+        .id        = AV_CODEC_ID_MAIN_CONCEPT_VC1,
+        .type      = AVMEDIA_TYPE_VIDEO,
+        .name      = "main_concept_vc1",
+        .long_name = NULL_IF_CONFIG_SMALL("Main Concept VC1"),
+        .props     = AV_CODEC_PROP_LOSSY,
+    },
+
     /* AMR */
     {
         .id        = AV_CODEC_ID_AMR_NB,

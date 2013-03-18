@@ -331,6 +331,9 @@ enum AVCodecID {
     AV_CODEC_ID_ADPCM_G722,
     AV_CODEC_ID_ADPCM_IMA_APC,
 
+    /* id3as */
+    AV_CODEC_ID_MAIN_CONCEPT_VC1,
+
     /* AMR */
     AV_CODEC_ID_AMR_NB = 0x12000,
     AV_CODEC_ID_AMR_WB,

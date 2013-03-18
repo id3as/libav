@@ -431,6 +431,7 @@ void avcodec_register_all(void)
     REGISTER_ENCODER(LIBX264,           libx264);
     REGISTER_ENCODER(LIBXAVS,           libxavs);
     REGISTER_ENCODER(LIBXVID,           libxvid);
+    REGISTER_ENCODER(LIBMAIN_CONCEPT_VC1,           mc_vc1);
 
     /* parsers */
     REGISTER_PARSER(AAC,                aac);
