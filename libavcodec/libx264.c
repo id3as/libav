@@ -390,6 +390,7 @@ static av_cold int X264_init(AVCodecContext *avctx)
     x4->params.i_fps_num = x4->params.i_timebase_den = avctx->time_base.den;
     x4->params.i_fps_den = x4->params.i_timebase_num = avctx->time_base.num;
 
+    // id3as
     x4->params.b_vfr_input = 0;
 
     x4->params.analyse.b_psnr = avctx->flags & CODEC_FLAG_PSNR;
