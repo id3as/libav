@@ -961,6 +961,7 @@ int attribute_align_arg avcodec_open2(AVCodecContext *avctx, const AVCodec *code
         int i;
         if (avctx->codec->sample_fmts) {
             for (i = 0; avctx->codec->sample_fmts[i] != AV_SAMPLE_FMT_NONE; i++) {
+
                 if (avctx->sample_fmt == avctx->codec->sample_fmts[i])
                     break;
                 if (avctx->channels == 1 &&

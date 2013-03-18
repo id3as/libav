@@ -380,8 +380,10 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
   memcpy(pkt->data, x->user_bfr, bytesEncoded);
   x->user_idx = 0;
 
-  //pkt->pts = pic_out.i_pts;
-  //pkt->dts = pic_out.i_dts;
+  // TODO
+  pkt->pts = frame->pts;
+  pkt->dts = frame->pts;
+
   //pkt->flags |= AV_PKT_FLAG_KEY*pic_out.b_keyframe;
 
   *got_packet = 1;
