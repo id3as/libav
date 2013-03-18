@@ -23,6 +23,7 @@
 #include "libavutil/opt.h"
 #include "libavutil/mem.h"
 #include "libavutil/pixdesc.h"
+#include "libavutil/intreadwrite.h"
 #include "avcodec.h"
 #include "internal.h"
 
@@ -75,13 +76,13 @@ static uint8_t *fw_request(bufstream_tt *bs, uint32_t numbytes)
     return p->bfr + p->idx;
 
   if(p->idx)
-  {
-	if ((p->user_idx + p->idx > p->user_bfr_size) || (p->user_bfr == NULL))
-      return NULL;
+    {
+      if ((p->user_idx + p->idx > p->user_bfr_size) || (p->user_bfr == NULL))
+	return NULL;
 
-	memcpy(&p->user_bfr[p->user_idx], p->bfr, p->idx);
-	p->user_idx += p->idx;
-  }
+      memcpy(&p->user_bfr[p->user_idx], p->bfr, p->idx);
+      p->user_idx += p->idx;
+    }
 
   p->idx = 0;
   return p->bfr;
@@ -103,10 +104,10 @@ static uint32_t fw_copybytes(bufstream_tt *bs, uint8_t *ptr, uint32_t numbytes)
   uint8_t *pc;
 
   if ((pc = bs->request(bs, numbytes)) == NULL)
-  {
-    p->idx = 0;
-    return 0;
-  }
+    {
+      p->idx = 0;
+      return 0;
+    }
   memcpy(pc, ptr, numbytes);
   return bs->confirm(bs, numbytes);
 }
@@ -125,25 +126,25 @@ static uint32_t fw_auxinfo(bufstream_tt *bs, uint32_t offs, uint32_t info_ID, vo
   struct impl_stream* p = bs->Buf_IO_struct;
 
   switch (info_ID)
-  {
+    {
     case BYTECOUNT_INFO:
-	  ptr = (uint32_t*)info_ptr;
-	  if (ptr && (info_size == sizeof(uint32_t)))
-	  {
-        if(p->idx)
-		{
-          if ((p->user_idx + p->idx > p->user_bfr_size) || (p->user_bfr == NULL))
-            return 0;
+      ptr = (uint32_t*)info_ptr;
+      if (ptr && (info_size == sizeof(uint32_t)))
+	{
+	  if(p->idx)
+	    {
+	      if ((p->user_idx + p->idx > p->user_bfr_size) || (p->user_bfr == NULL))
+		return 0;
 
 	      memcpy(&p->user_bfr[p->user_idx], p->bfr, p->idx);
 	      p->user_idx += p->idx;
-          p->idx = 0;
-		}
-		*ptr = p->user_idx;
-	  }
-	  break;
+	      p->idx = 0;
+	    }
+	  *ptr = p->user_idx;
+	}
+      break;
 
-  }
+    }
   return BS_OK;
 }
 
@@ -159,10 +160,10 @@ static void fw_done(bufstream_tt *bs, int32_t Abort)
   struct impl_stream* p = bs->Buf_IO_struct;
 
   if (p->idx)
-  {
-    if ((p->user_idx + p->idx <= p->user_bfr_size) && (p->user_bfr != NULL))
-      memcpy(&p->user_bfr[p->user_idx], p->bfr, p->idx);
-  }
+    {
+      if ((p->user_idx + p->idx <= p->user_bfr_size) && (p->user_bfr != NULL))
+	memcpy(&p->user_bfr[p->user_idx], p->bfr, p->idx);
+    }
 
   free(p->bfr);
   free(p);
@@ -183,16 +184,16 @@ static int32_t init_mem_buf_write(bufstream_tt *bs, uint8_t *buffer, uint32_t bu
 {
   bs->Buf_IO_struct = (struct impl_stream*)malloc(sizeof(struct impl_stream));
   if (!(bs->Buf_IO_struct))
-  {
-    return BS_ERROR;
-  }
+    {
+      return BS_ERROR;
+    }
 
   bs->Buf_IO_struct->bfr = (uint8_t*)malloc(bufsize);
   if (!(bs->Buf_IO_struct->bfr))
-  {
-	free(bs->Buf_IO_struct);
-    return BS_ERROR;
-  }
+    {
+      free(bs->Buf_IO_struct);
+      return BS_ERROR;
+    }
 
   bs->Buf_IO_struct->user_bfr      = buffer;
   bs->Buf_IO_struct->user_bfr_size = bufsize;
@@ -225,13 +226,13 @@ static bufstream_tt *open_mem_buf_write(uint8_t *buffer, uint32_t bufsize)
   bufstream_tt *p;
   p = (bufstream_tt*)malloc(sizeof(bufstream_tt));
   if (p)
-  {
-    if (init_mem_buf_write(p, buffer, bufsize) != BS_OK)
     {
-      free(p);
-      p = NULL;
+      if (init_mem_buf_write(p, buffer, bufsize) != BS_OK)
+	{
+	  free(p);
+	  p = NULL;
+	}
     }
-  }
   return p;
 }
 
@@ -244,108 +245,108 @@ static void close_mem_buf(bufstream_tt* bs, int32_t Abort)
 
 static void info_printf(const char * fmt, ...)
 {
-    char lst[1024];
-    va_list marker;
+  char lst[1024];
+  va_list marker;
 
-    va_start(marker, fmt);
-    vsnprintf(lst, sizeof(lst), fmt, marker);
-    va_end(marker);
+  va_start(marker, fmt);
+  vsnprintf(lst, sizeof(lst), fmt, marker);
+  va_end(marker);
 
-    strncat(lst, "\r\n", sizeof(lst));
-    printf("%s\n", lst);
+  strncat(lst, "\r\n", sizeof(lst));
+  printf("%s\n", lst);
 }
 
 
 static void warn_printf(const char * fmt, ...)
 {
-    char lst[256];
-    va_list marker;
+  char lst[256];
+  va_list marker;
 
-    va_start(marker, fmt);
-    vsnprintf(lst, sizeof(lst), fmt, marker);
-    va_end(marker);
+  va_start(marker, fmt);
+  vsnprintf(lst, sizeof(lst), fmt, marker);
+  va_end(marker);
 
-    printf("%s\n", lst);
+  printf("%s\n", lst);
 }
 
 
 static void error_printf(const char * fmt, ...)
 {
-    char lst[256];
-    va_list marker;
+  char lst[256];
+  va_list marker;
 
-    va_start(marker,fmt);
-    vsnprintf(lst, sizeof(lst), fmt, marker);
-    va_end(marker);
+  va_start(marker,fmt);
+  vsnprintf(lst, sizeof(lst), fmt, marker);
+  va_end(marker);
 
-    printf("%s\n", lst);
+  printf("%s\n", lst);
 }
 
 
 static void progress_printf(int32_t percent, const char * fmt, ...)
 {
-    char lst[256];
-    va_list marker;
+  char lst[256];
+  va_list marker;
 
-    va_start(marker,fmt);
-    vsnprintf(lst, sizeof(lst), fmt, marker);
-    va_end(marker);
+  va_start(marker,fmt);
+  vsnprintf(lst, sizeof(lst), fmt, marker);
+  va_end(marker);
 
-    printf(" %d - %s\n", percent, lst);
+  printf(" %d - %s\n", percent, lst);
 }
 
 
 static int32_t yield()
 {
-return 0;
+  return 0;
 }
 
 
 // resource functions dispatcher
 static void * MC_EXPORT_API get_rc(const char* name)
 {
-    if (!strcmp(name, "err_printf"))
-        return (void*) error_printf;
-    else if (!strcmp(name, "prg_printf"))
-        return (void*) progress_printf;
-    else if (!strcmp(name, "wrn_printf"))
-        return (void*) warn_printf;
-    else if (!strcmp(name, "inf_printf"))
-        return (void*) info_printf;
-    else if (!strcmp(name, "yield"))
-        return (void*) yield;
+  if (!strcmp(name, "err_printf"))
+    return (void*) error_printf;
+  else if (!strcmp(name, "prg_printf"))
+    return (void*) progress_printf;
+  else if (!strcmp(name, "wrn_printf"))
+    return (void*) warn_printf;
+  else if (!strcmp(name, "inf_printf"))
+    return (void*) info_printf;
+  else if (!strcmp(name, "yield"))
+    return (void*) yield;
 
-    return NULL;
+  return NULL;
 }
 
 static int get_video_type(int width, int height, double frame_rate)
 {
-    if ((width == 352) && ((height == 240) || (height == 288)))
+  if ((width == 352) && ((height == 240) || (height == 288)))
     {
-        return VC1_CIF;
+      return VC1_CIF;
     }
-    else if ((width == 480) && ((height == 480) || (height == 576)))
+  else if ((width == 480) && ((height == 480) || (height == 576)))
     {
-        return VC1_SVCD;
+      return VC1_SVCD;
     }
-    else if ((width == 720) && ((height == 480) || (height == 576)))
+  else if ((width == 720) && ((height == 480) || (height == 576)))
     {
-        return VC1_D1;
+      return VC1_D1;
     }
-    else if (width < 288)
+  else if (width < 288)
     {
-        return VC1_BASELINE;
+      return VC1_BASELINE;
     }
-    else if (width >= 1280)
+  else if (width >= 1280)
     {
-        return VC1_BD;
+      return VC1_BD;
     }
 
-    return VC1_MAIN;
+  return VC1_MAIN;
 }
 
 static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
-		       int *got_packet)
+		     int *got_packet)
 {
   VC1Context *context = ctx->priv_data;
   int ret;
@@ -353,6 +354,7 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
   void * ext_info_stack[16] = {0};
   unsigned int option_flags = 0;
   void ** ext_info = &ext_info_stack[0];
+  uint32_t bytesEncoded = 0;
 
   int plane1_size = frame->linesize[0] * ctx->height;
   int plane2_size = frame->linesize[1] * ctx->height / 2;
@@ -370,7 +372,19 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
       exit(1);
     }
 
-  *got_packet = ret;
+  context->videobs->auxinfo(context->videobs, 0, BYTECOUNT_INFO, &bytesEncoded, sizeof(bytesEncoded));
+
+  ff_alloc_packet(pkt, bytesEncoded);
+
+  struct impl_stream *x  = (struct impl_stream *)context->videobs->Buf_IO_struct;
+  memcpy(pkt->data, x->user_bfr, bytesEncoded);
+  x->user_idx = 0;
+
+  //pkt->pts = pic_out.i_pts;
+  //pkt->dts = pic_out.i_dts;
+  //pkt->flags |= AV_PKT_FLAG_KEY*pic_out.b_keyframe;
+
+  *got_packet = 1;
   return 0;
 }
 
@@ -420,6 +434,9 @@ static av_cold int VC1_init(AVCodecContext *avctx)
       printf("vc1OutVideoInit fails.\n");
     }      
 
+  if (!avctx->codec_tag)
+    avctx->codec_tag = AV_RL32("I420");
+
   return 0;
 }
 
@@ -428,33 +445,33 @@ static av_cold void VC1_init_static(AVCodec *codec)
 }
 
 static const AVOption options[] = {
-    { NULL },
+  { NULL },
 };
 
 static const AVClass class = {
-    .class_name = "mc_vc1",
-    .item_name  = av_default_item_name,
-    .option     = options,
-    .version    = LIBAVUTIL_VERSION_INT,
+  .class_name = "mc_vc1",
+  .item_name  = av_default_item_name,
+  .option     = options,
+  .version    = LIBAVUTIL_VERSION_INT,
 };
 
 static const AVCodecDefault VC1_defaults[] = {
-    { NULL },
+  { NULL },
 };
 
 AVCodec ff_mc_vc1_encoder = {
-    .name             = "mc_vc1",
-    .type             = AVMEDIA_TYPE_VIDEO,
-    .id               = AV_CODEC_ID_MAIN_CONCEPT_VC1,
-    .priv_data_size   = sizeof(VC1Context),
-    .init             = VC1_init,
-    .encode2          = VC1_frame,
-    .close            = VC1_close,
-    .capabilities     = CODEC_CAP_DELAY | CODEC_CAP_AUTO_THREADS,
-    .long_name        = NULL_IF_CONFIG_SMALL("Main Concept VC1"),
-    .priv_class       = &class,
-    .defaults         = VC1_defaults,
-    .init_static_data = VC1_init_static,    
-    .pix_fmts     = (const enum AVPixelFormat[]) { AV_PIX_FMT_YUV420P, AV_PIX_FMT_NONE}
+  .name             = "mc_vc1",
+  .type             = AVMEDIA_TYPE_VIDEO,
+  .id               = AV_CODEC_ID_MAIN_CONCEPT_VC1,
+  .priv_data_size   = sizeof(VC1Context),
+  .init             = VC1_init,
+  .encode2          = VC1_frame,
+  .close            = VC1_close,
+  .capabilities     = CODEC_CAP_DELAY | CODEC_CAP_AUTO_THREADS,
+  .long_name        = NULL_IF_CONFIG_SMALL("Main Concept VC1"),
+  .priv_class       = &class,
+  .defaults         = VC1_defaults,
+  .init_static_data = VC1_init_static,    
+  .pix_fmts     = (const enum AVPixelFormat[]) { AV_PIX_FMT_YUV420P, AV_PIX_FMT_NONE}
 
 };
