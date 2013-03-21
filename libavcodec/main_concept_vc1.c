@@ -31,6 +31,7 @@
 #include "config_vc1.h"
 #include "enc_vc1_def.h"
 #include "mcfourcc.h"
+#include "mcdefs.h"
 #include "auxinfo.h"
 
 #include <float.h>
@@ -42,57 +43,83 @@
 
 typedef struct VC1Context {
   AVClass        *class;
+  struct vc1_param_set param_set;
+  struct vc1_v_settings *v_settings;
   vc1venc_tt * v_encoder;
   bufstream_tt * videobs;
 
 } VC1Context;
 
-// implementation structure
-struct impl_stream
-{
-  uint8_t *user_bfr;
-  uint32_t user_bfr_size;
-  uint32_t user_idx;
+#define BUFFER_SIZE 1000000
+#define NUM_FRAMES 10
+#define ONE_HUNDRED_NANOS (AVRational){1, 10000000}
+#define TWENTY_SEVEN_MHZ (AVRational){1, 27000000}
 
-  uint8_t *bfr;
-  uint32_t idx;       // read-write index
-  uint32_t bfr_size;  // allocated size
-  uint32_t chunk_size;
+
+struct encoder_frame {
+  uint8_t bfr[BUFFER_SIZE];
+  uint32_t bfr_size;
+  uint32_t data_size;
+  uint16_t flags;
+  uint16_t type;
+  int64_t original_pts;
+  int64_t pts;
+  int64_t dts;
+  int populated;
 };
+
+struct frame_buffer
+{
+  struct encoder_frame frames[10];
+  uint32_t read_idx;
+  uint32_t write_idx;
+  uint32_t chunk_size;
+  AVRational time_base;
+};
+
+static struct encoder_frame *read_frame(bufstream_tt *bs)
+{
+  struct frame_buffer* p = (struct frame_buffer*) bs->Buf_IO_struct;
+  uint32_t idx = p->read_idx;
+
+  if (p->frames[idx].populated) {
+    
+    p->read_idx = (p->read_idx + 1) % NUM_FRAMES;
+    p->frames[idx].populated = 0;
+    return &(p->frames[idx]);
+  }
+  else {
+    return NULL;
+  }
+}
 
 static uint32_t fw_usable_bytes(bufstream_tt *bs)
 {
-  struct impl_stream* p = bs->Buf_IO_struct;
-  return p->bfr_size - p->idx;
+  //struct frame_buffer* p = bs->Buf_IO_struct;
+
+  return BUFFER_SIZE;
 }
 
 
 // request the buffer with at least numbytes-bytes
 static uint8_t *fw_request(bufstream_tt *bs, uint32_t numbytes)
 {
-  struct impl_stream* p = bs->Buf_IO_struct;
+  struct frame_buffer* p = (struct frame_buffer*) bs->Buf_IO_struct;
 
-  if(p->idx + numbytes <= p->bfr_size)
-    return p->bfr + p->idx;
+  p->write_idx = (p->write_idx + 1) % NUM_FRAMES;
+  p->frames[p->write_idx].populated = 1;
 
-  if(p->idx)
-    {
-      if ((p->user_idx + p->idx > p->user_bfr_size) || (p->user_bfr == NULL))
-	return NULL;
-
-      memcpy(&p->user_bfr[p->user_idx], p->bfr, p->idx);
-      p->user_idx += p->idx;
-    }
-
-  p->idx = 0;
-  return p->bfr;
+  return p->frames[p->write_idx].bfr;
 }
 
 
 // confirm numbytes-bytes filled in in requested after last "request"-call
 static uint32_t fw_confirm(bufstream_tt *bs, uint32_t numbytes)
 {
-  bs->Buf_IO_struct->idx += numbytes;
+  struct frame_buffer* p = (struct frame_buffer*)bs->Buf_IO_struct;
+
+  p->frames[p->write_idx].data_size = numbytes;
+
   return numbytes;
 }
 
@@ -100,12 +127,10 @@ static uint32_t fw_confirm(bufstream_tt *bs, uint32_t numbytes)
 // put numbytes-bytes into bufsteam
 static uint32_t fw_copybytes(bufstream_tt *bs, uint8_t *ptr, uint32_t numbytes)
 {
-  struct impl_stream* p = bs->Buf_IO_struct;
   uint8_t *pc;
 
   if ((pc = bs->request(bs, numbytes)) == NULL)
     {
-      p->idx = 0;
       return 0;
     }
   memcpy(pc, ptr, numbytes);
@@ -116,34 +141,99 @@ static uint32_t fw_copybytes(bufstream_tt *bs, uint8_t *ptr, uint32_t numbytes)
 // maximum chunk-size in buffer-mode (i.e. for "request"-call)
 static uint32_t fw_chunksize(bufstream_tt *bs)
 {
-  return bs->Buf_IO_struct->chunk_size;
+  struct frame_buffer* p = (struct frame_buffer*) bs->Buf_IO_struct;
+  return p->chunk_size;
 }
   
 
 static uint32_t fw_auxinfo(bufstream_tt *bs, uint32_t offs, uint32_t info_ID, void *info_ptr, uint32_t info_size)
 {
-  uint32_t *ptr;
-  struct impl_stream* p = bs->Buf_IO_struct;
+  struct frame_buffer* p = (struct frame_buffer*) bs->Buf_IO_struct;
 
   switch (info_ID)
     {
     case BYTECOUNT_INFO:
-      ptr = (uint32_t*)info_ptr;
-      if (ptr && (info_size == sizeof(uint32_t)))
-	{
-	  if(p->idx)
-	    {
-	      if ((p->user_idx + p->idx > p->user_bfr_size) || (p->user_bfr == NULL))
-		return 0;
-
-	      memcpy(&p->user_bfr[p->user_idx], p->bfr, p->idx);
-	      p->user_idx += p->idx;
-	      p->idx = 0;
-	    }
-	  *ptr = p->user_idx;
-	}
+      {
+	uint32_t *ptr = (uint32_t*)info_ptr;
+	if (ptr && (info_size == sizeof(uint32_t)))
+	  {
+	    *ptr = p->frames[p->read_idx].data_size;
+	  }
+      }
       break;
 
+    case ID_PICTURE_START_CODE:
+      {
+	__attribute__((__unused__)) struct pic_start_info *pph = (struct pic_start_info*)info_ptr;
+      }
+      break;
+
+    case STATISTIC_INFO: 
+      {
+        __attribute__((__unused__)) struct encode_stat_struct *stats = (struct encode_stat_struct*)info_ptr;
+      }
+      break; 
+
+    case CPB_FULLNESS:
+      {
+	__attribute__((__unused__)) struct cpb_fullness_struct *cpb = (struct cpb_fullness_struct*)info_ptr;
+      }
+      break;
+
+    case TIME_STAMP_INFO:
+      {
+	__attribute__((__unused__)) struct sample_info_struct *timestamps = (struct sample_info_struct*)info_ptr;
+
+	  p->frames[p->write_idx].original_pts = av_rescale_q(timestamps->rtStart, ONE_HUNDRED_NANOS, p->time_base);
+      }
+      break;
+
+    case WMV_STREAM_INFO:
+      {
+	__attribute__((__unused__)) struct wmv_stream_info *wmv = (struct wmv_stream_info*)info_ptr;
+      }
+      break;
+
+    case STREAM_FORMAT_INFO:
+      {
+	__attribute__((__unused__)) struct mc_struct_format_t *stream_format = (struct mc_struct_format_t *)info_ptr;
+      }
+      break;
+
+    case ID_SEQ_START_CODE:
+      {
+	__attribute__((__unused__)) struct seq_start_info *seq_start = (struct seq_start_info *)info_ptr;
+      }
+      break;
+
+    case ID_GOP_START_CODE:
+      {
+	__attribute__((__unused__)) struct gop_start_info *gop_start = (struct gop_start_info *)info_ptr;
+      }
+      break;
+
+    case VIDEO_AU_CODE:
+      {
+	struct v_au_struct *au = (struct v_au_struct *) info_ptr;
+
+	int64_t encoder_pts = av_rescale_q(au->PTS, TWENTY_SEVEN_MHZ, p->time_base);
+	int64_t encoder_dts = av_rescale_q(au->DTS, TWENTY_SEVEN_MHZ, p->time_base);
+	int64_t original_pts = p->frames[p->write_idx].original_pts;
+	int64_t pts_diff = original_pts - encoder_pts;
+
+	// printf("enc dts, enc pts, orig pts %ld, %ld, %ld\n",
+	//        encoder_dts, encoder_pts, original_pts);
+
+	p->frames[p->write_idx].flags = au->flags;
+	p->frames[p->write_idx].type = au->type;
+	p->frames[p->write_idx].pts = original_pts;
+	p->frames[p->write_idx].dts = encoder_dts + pts_diff;
+      }
+      break;
+
+    default:
+      printf("unhandled auxinfo %u\n", info_ID);
+      break;
     }
   return BS_OK;
 }
@@ -157,15 +247,8 @@ static uint32_t fw_split(bufstream_tt *bs)
 
 static void fw_done(bufstream_tt *bs, int32_t Abort)
 {
-  struct impl_stream* p = bs->Buf_IO_struct;
+  struct frame_buffer* p = (struct frame_buffer*)bs->Buf_IO_struct;
 
-  if (p->idx)
-    {
-      if ((p->user_idx + p->idx <= p->user_bfr_size) && (p->user_bfr != NULL))
-	memcpy(&p->user_bfr[p->user_idx], p->bfr, p->idx);
-    }
-
-  free(p->bfr);
   free(p);
   bs->Buf_IO_struct = NULL;
 }
@@ -180,28 +263,25 @@ static void fw_free(bufstream_tt *bs)
 }
 
 
-static int32_t init_mem_buf_write(bufstream_tt *bs, uint8_t *buffer, uint32_t bufsize)
+static int32_t init_mem_buf_write(bufstream_tt *bs, AVRational time_base)
 {
-  bs->Buf_IO_struct = (struct impl_stream*)malloc(sizeof(struct impl_stream));
-  if (!(bs->Buf_IO_struct))
+  struct frame_buffer *p = malloc(sizeof(struct frame_buffer));
+
+  if (!p)
     {
       return BS_ERROR;
     }
 
-  bs->Buf_IO_struct->bfr = (uint8_t*)malloc(bufsize);
-  if (!(bs->Buf_IO_struct->bfr))
-    {
-      free(bs->Buf_IO_struct);
-      return BS_ERROR;
-    }
+  bs->Buf_IO_struct = (struct impl_stream *)p;
 
-  bs->Buf_IO_struct->user_bfr      = buffer;
-  bs->Buf_IO_struct->user_bfr_size = bufsize;
-  bs->Buf_IO_struct->user_idx      = 0;
+  p->write_idx = -1;
+  p->read_idx = 0;
+  p->chunk_size = BUFFER_SIZE / 2;
+  p->time_base = time_base;
 
-  bs->Buf_IO_struct->bfr_size      = bufsize;
-  bs->Buf_IO_struct->chunk_size    = bufsize;
-  bs->Buf_IO_struct->idx           = 0;
+  for (int i = 0; i < NUM_FRAMES; i++) {
+    p->frames[i].populated = 0;
+  }
 
   bs->usable_bytes = fw_usable_bytes;
   bs->request      = fw_request;
@@ -221,13 +301,13 @@ static int32_t init_mem_buf_write(bufstream_tt *bs, uint8_t *buffer, uint32_t bu
 }
 
 
-static bufstream_tt *open_mem_buf_write(uint8_t *buffer, uint32_t bufsize)
+static bufstream_tt *open_mem_buf_write(AVRational time_base)
 {
   bufstream_tt *p;
   p = (bufstream_tt*)malloc(sizeof(bufstream_tt));
   if (p)
     {
-      if (init_mem_buf_write(p, buffer, bufsize) != BS_OK)
+      if (init_mem_buf_write(p, time_base) != BS_OK)
 	{
 	  free(p);
 	  p = NULL;
@@ -349,12 +429,17 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
 		     int *got_packet)
 {
   VC1Context *context = ctx->priv_data;
-  int ret;
 
   void * ext_info_stack[16] = {0};
-  unsigned int option_flags = 0;
+  unsigned int option_flags = OPT_EXT_PARAM_TIMESTAMPS;
   void ** ext_info = &ext_info_stack[0];
-  uint32_t bytesEncoded = 0;
+
+  struct sample_info_struct si;
+  ext_info_stack[0] = &si;
+  si.flags = 0;
+  si.mode = 0;
+  si.rtStart = av_rescale_q(frame->pts, ctx->time_base, ONE_HUNDRED_NANOS);
+  si.rtStop = si.rtStart + (10000000 / context->v_settings->frame_rate);   
 
   int plane1_size = frame->linesize[0] * ctx->height;
   int plane2_size = frame->linesize[1] * ctx->height / 2;
@@ -372,37 +457,69 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
       exit(1);
     }
 
-  context->videobs->auxinfo(context->videobs, 0, BYTECOUNT_INFO, &bytesEncoded, sizeof(bytesEncoded));
+  free(b);
 
-  ff_alloc_packet(pkt, bytesEncoded);
+  /*
+  video_frame_tt v_frame;
 
-  struct impl_stream *x  = (struct impl_stream *)context->videobs->Buf_IO_struct;
-  memcpy(pkt->data, x->user_bfr, bytesEncoded);
-  x->user_idx = 0;
+  v_frame.four_cc = FOURCC_I420;
+  v_frame.src[0].width = ctx->width;
+  v_frame.src[0].height = ctx->height;
+  v_frame.src[0].stride = frame->linesize[0];
+  v_frame.src[0].plane = frame->data[0];
 
-  // TODO
-  pkt->pts = frame->pts;
-  pkt->dts = frame->pts;
+  v_frame.src[1].width = ctx->width >> 1;
+  v_frame.src[1].height = ctx->height >> 1;
+  v_frame.src[1].stride = frame->linesize[1];
+  v_frame.src[1].plane = frame->data[1];
 
-  //pkt->flags |= AV_PKT_FLAG_KEY*pic_out.b_keyframe;
+  v_frame.src[2].width = ctx->width >> 1;
+  v_frame.src[2].height = ctx->height >> 1;
+  v_frame.src[2].stride = frame->linesize[2];
+  v_frame.src[2].plane = frame->data[2];
 
-  *got_packet = 1;
+  if (vc1OutVideoPutFrameV(context->v_encoder, &v_frame, option_flags, ext_info) == VC1ERROR_FAILED)
+    {
+      printf("It failed\n");
+      exit(1);
+    }
+  */
+
+  struct encoder_frame *encoded_frame = read_frame(context->videobs);
+  
+  if (encoded_frame) {
+    ff_alloc_packet(pkt, encoded_frame->data_size);
+    
+    memcpy(pkt->data, encoded_frame->bfr, encoded_frame->data_size);
+    
+    pkt->pts = encoded_frame->pts;
+    pkt->dts = encoded_frame->dts;
+
+    if (encoded_frame->type == I_TYPE) {
+      pkt->flags |= AV_PKT_FLAG_KEY;
+    }
+    
+    *got_packet = 1;
+  } 
+  else
+    {
+      *got_packet = 0;
+    }
   return 0;
 }
 
-static av_cold int VC1_close(AVCodecContext *avctx)
-{
-  VC1Context *context = avctx->priv_data;
+ static av_cold int VC1_close(AVCodecContext *avctx)
+ {
+  //VC1Context *context = avctx->priv_data;
   
   return 0;
 }
 
-static av_cold int VC1_init(AVCodecContext *avctx)
-{
+ static av_cold int VC1_init(AVCodecContext *avctx)
+ {
   VC1Context *context = avctx->priv_data;
   
-  struct vc1_param_set param_set;
-  struct vc1_v_settings * v_settings = &param_set.params;
+  context->v_settings = &context->param_set.params;
   
   int init_options = 0;
   void * opt_list[10];
@@ -410,31 +527,44 @@ static av_cold int VC1_init(AVCodecContext *avctx)
   // TODO - get from context
   double frame_rate = 25;
   int interlaced = 1;
-  int bufsize = 1000000;
-  uint8_t * buffer = malloc(bufsize);
 
   int video_type = get_video_type(avctx->width, avctx->height, frame_rate);
 
-  vc1OutVideoDefaults(v_settings, video_type, 0);
+  vc1OutVideoDefaults(context->v_settings, video_type, 0);
 
-  v_settings->min_key_frame_interval   = 1;
+  context->v_settings->min_key_frame_interval   = 1;
+  context->v_settings->bit_rate                 = avctx->bit_rate >= 0 ? avctx->bit_rate : context->v_settings->bit_rate;
+  context->v_settings->frame_rate               = frame_rate > 0.0 ? frame_rate : context->v_settings->frame_rate;
+  context->v_settings->interlace_mode           = interlaced == 0 ? VC1_PROGRESSIVE : interlaced == 1 ? VC1_INTERLACE_MBAFF : context->v_settings->interlace_mode;
+  context->v_settings->def_horizontal_size      = avctx->width;
+  context->v_settings->def_vertical_size        = avctx->height;
+  context->v_settings->b_frame_distance = 0;
   
-  v_settings->bit_rate                 = avctx->bit_rate >= 0 ? avctx->bit_rate : v_settings->bit_rate;
-  v_settings->frame_rate               = frame_rate > 0.0 ? frame_rate : v_settings->frame_rate;
-  v_settings->interlace_mode           = interlaced == 0 ? VC1_PROGRESSIVE : interlaced == 1 ? VC1_INTERLACE_MBAFF : v_settings->interlace_mode;
-  
-  // the encoder can't scale the picture
-  v_settings->def_horizontal_size      = avctx->width;
-  v_settings->def_vertical_size        = avctx->height;
-  
-  context->v_encoder = vc1OutVideoNew(get_rc, v_settings, 0, 0xFFFFFFFF, 0, 0);
+  context->v_encoder = vc1OutVideoNew(get_rc, context->v_settings, 0, 0xFFFFFFFF, 0, 0);
 
-  context->videobs = open_mem_buf_write(buffer, bufsize);
+  context->videobs = open_mem_buf_write(avctx->time_base);
   
   if(vc1OutVideoInit(context->v_encoder, context->videobs, init_options, &opt_list[0]))
     {
-      printf("vc1OutVideoInit fails.\n");
+      printf("vc1OutVideoInit failed\n");
+      exit(1);
     }      
+
+  uint8_t paramSets[256];
+  int32_t paramSetsLen;
+
+  if (vc1OutVideoGetParSets(context->v_encoder,
+			    context->v_settings,
+			    paramSets,
+			    &paramSetsLen) != VC1ERROR_NONE) {
+    printf("vc1OutVideoGetParSets failed\n");
+    exit(1);
+  }
+
+  for (int i = 0; i < paramSetsLen; i++) {
+    fprintf(stderr, "0x%1x ", paramSets[i]);
+  }
+  fprintf(stderr, "\n");
 
   if (!avctx->codec_tag)
     avctx->codec_tag = AV_RL32("I420");
@@ -442,38 +572,38 @@ static av_cold int VC1_init(AVCodecContext *avctx)
   return 0;
 }
 
-static av_cold void VC1_init_static(AVCodec *codec)
-{
+ static av_cold void VC1_init_static(AVCodec *codec)
+ {
 }
 
-static const AVOption options[] = {
+ static const AVOption options[] = {
   { NULL },
-};
+    };
 
-static const AVClass class = {
+ static const AVClass class = {
   .class_name = "mc_vc1",
-  .item_name  = av_default_item_name,
-  .option     = options,
-  .version    = LIBAVUTIL_VERSION_INT,
-};
+    .item_name  = av_default_item_name,
+    .option     = options,
+    .version    = LIBAVUTIL_VERSION_INT,
+    };
 
-static const AVCodecDefault VC1_defaults[] = {
+ static const AVCodecDefault VC1_defaults[] = {
   { NULL },
-};
+    };
 
-AVCodec ff_mc_vc1_encoder = {
+ AVCodec ff_mc_vc1_encoder = {
   .name             = "mc_vc1",
-  .type             = AVMEDIA_TYPE_VIDEO,
-  .id               = AV_CODEC_ID_MAIN_CONCEPT_VC1,
-  .priv_data_size   = sizeof(VC1Context),
-  .init             = VC1_init,
-  .encode2          = VC1_frame,
-  .close            = VC1_close,
-  .capabilities     = CODEC_CAP_DELAY | CODEC_CAP_AUTO_THREADS,
-  .long_name        = NULL_IF_CONFIG_SMALL("Main Concept VC1"),
-  .priv_class       = &class,
-  .defaults         = VC1_defaults,
-  .init_static_data = VC1_init_static,    
-  .pix_fmts     = (const enum AVPixelFormat[]) { AV_PIX_FMT_YUV420P, AV_PIX_FMT_NONE}
+    .type             = AVMEDIA_TYPE_VIDEO,
+    .id               = AV_CODEC_ID_MAIN_CONCEPT_VC1,
+    .priv_data_size   = sizeof(VC1Context),
+    .init             = VC1_init,
+    .encode2          = VC1_frame,
+    .close            = VC1_close,
+    .capabilities     = CODEC_CAP_DELAY | CODEC_CAP_AUTO_THREADS,
+    .long_name        = NULL_IF_CONFIG_SMALL("Main Concept VC1"),
+    .priv_class       = &class,
+    .defaults         = VC1_defaults,
+    .init_static_data = VC1_init_static,    
+    .pix_fmts     = (const enum AVPixelFormat[]) { AV_PIX_FMT_YUV420P, AV_PIX_FMT_NONE}
 
 };
