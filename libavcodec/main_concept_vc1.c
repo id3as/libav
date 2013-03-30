@@ -495,6 +495,8 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
  {
   //VC1Context *context = avctx->priv_data;
   
+   av_freep(&avctx->extradata);
+
   return 0;
 }
 
@@ -553,10 +555,17 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
     exit(1);
   }
 
+  avctx->extradata = av_malloc(paramSetsLen);
+  avctx->extradata_size = paramSetsLen;
+
+  memcpy(avctx->extradata, paramSets, paramSetsLen);
+
+  /*
   for (int i = 0; i < paramSetsLen; i++) {
     fprintf(stderr, "0x%1x ", paramSets[i]);
   }
   fprintf(stderr, "\n");
+  */
 
   if (!avctx->codec_tag)
     avctx->codec_tag = AV_RL32("I420");
