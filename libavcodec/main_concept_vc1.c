@@ -40,13 +40,14 @@
 #include <stdlib.h>
 #include <string.h>
 
-
 typedef struct VC1Context {
   AVClass        *class;
   struct vc1_param_set param_set;
   struct vc1_v_settings *v_settings;
   vc1venc_tt * v_encoder;
   bufstream_tt * videobs;
+  char *profile;
+  char *video_format;
 
 } VC1Context;
 
@@ -221,9 +222,6 @@ static uint32_t fw_auxinfo(bufstream_tt *bs, uint32_t offs, uint32_t info_ID, vo
 	int64_t original_pts = p->frames[p->write_idx].original_pts;
 	int64_t pts_diff = original_pts - encoder_pts;
 
-	// printf("enc dts, enc pts, orig pts %ld, %ld, %ld\n",
-	//        encoder_dts, encoder_pts, original_pts);
-
 	p->frames[p->write_idx].flags = au->flags;
 	p->frames[p->write_idx].type = au->type;
 	p->frames[p->write_idx].pts = original_pts;
@@ -317,12 +315,6 @@ static bufstream_tt *open_mem_buf_write(AVRational time_base)
 }
 
 
-static void close_mem_buf(bufstream_tt* bs, int32_t Abort)
-{
-  bs->done(bs, Abort);
-  bs->free(bs);
-}
-
 static void info_printf(const char * fmt, ...)
 {
   char lst[1024];
@@ -375,13 +367,6 @@ static void progress_printf(int32_t percent, const char * fmt, ...)
   printf(" %d - %s\n", percent, lst);
 }
 
-
-static int32_t yield()
-{
-  return 0;
-}
-
-
 // resource functions dispatcher
 static void * MC_EXPORT_API get_rc(const char* name)
 {
@@ -393,13 +378,11 @@ static void * MC_EXPORT_API get_rc(const char* name)
     return (void*) warn_printf;
   else if (!strcmp(name, "inf_printf"))
     return (void*) info_printf;
-  else if (!strcmp(name, "yield"))
-    return (void*) yield;
 
   return NULL;
 }
 
-static int get_video_type(int width, int height, double frame_rate)
+static int get_video_type(int width, int height)
 {
   if ((width == 352) && ((height == 240) || (height == 288)))
     {
@@ -433,19 +416,19 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
   void * ext_info_stack[16] = {0};
   unsigned int option_flags = OPT_EXT_PARAM_TIMESTAMPS;
   void ** ext_info = &ext_info_stack[0];
-
+  int plane1_size = frame->linesize[0] * ctx->height;
+  int plane2_size = frame->linesize[1] * ctx->height / 2;
+  int plane3_size = frame->linesize[2] * ctx->height / 2;
+  int size = plane1_size + plane2_size + plane3_size;
+  uint8_t *b = malloc(size);
   struct sample_info_struct si;
+  struct encoder_frame *encoded_frame;
+
   ext_info_stack[0] = &si;
   si.flags = 0;
   si.mode = 0;
   si.rtStart = av_rescale_q(frame->pts, ctx->time_base, ONE_HUNDRED_NANOS);
   si.rtStop = si.rtStart + (10000000 / context->v_settings->frame_rate);   
-
-  int plane1_size = frame->linesize[0] * ctx->height;
-  int plane2_size = frame->linesize[1] * ctx->height / 2;
-  int plane3_size = frame->linesize[2] * ctx->height / 2;
-  int s = plane1_size + plane2_size + plane3_size;
-  uint8_t *b = malloc(s);
 
   memcpy(b, frame->data[0], plane1_size);
   memcpy(b + plane1_size, frame->data[1], plane2_size);
@@ -477,7 +460,7 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
   v_frame.src[2].height = ctx->height >> 1;
   v_frame.src[2].stride = frame->linesize[2];
   v_frame.src[2].plane = frame->data[2];
-
+  
   if (vc1OutVideoPutFrameV(context->v_encoder, &v_frame, option_flags, ext_info) == VC1ERROR_FAILED)
     {
       printf("It failed\n");
@@ -485,7 +468,7 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
     }
   */
 
-  struct encoder_frame *encoded_frame = read_frame(context->videobs);
+  encoded_frame = read_frame(context->videobs);
   
   if (encoded_frame) {
     ff_alloc_packet(pkt, encoded_frame->data_size);
@@ -519,26 +502,38 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
  {
   VC1Context *context = avctx->priv_data;
   
-  context->v_settings = &context->param_set.params;
   
   int init_options = 0;
   void * opt_list[10];
 
-  // TODO - get from context
-  double frame_rate = 25;
-  int interlaced = 1;
+  int video_type = get_video_type(avctx->width, avctx->height);
 
-  int video_type = get_video_type(avctx->width, avctx->height, frame_rate);
+  int video_format = context->video_format ? 
+    ((strcmp(context->video_format, "pal") == 0) ? VM_PAL : VM_NTSC) : VM_PAL;
 
-  vc1OutVideoDefaults(context->v_settings, video_type, 0);
+  int profile = context->profile ?
+    ((strcmp(context->profile, "simple") == 0) ? VC1_PROFILE_SIMPLE :
+     (strcmp(context->profile, "main") == 0) ? VC1_PROFILE_MAIN : VC1_PROFILE_ADVANCED) : VC1_PROFILE_MAIN;
 
-  context->v_settings->min_key_frame_interval   = 1;
-  context->v_settings->bit_rate                 = avctx->bit_rate >= 0 ? avctx->bit_rate : context->v_settings->bit_rate;
-  context->v_settings->frame_rate               = frame_rate > 0.0 ? frame_rate : context->v_settings->frame_rate;
-  context->v_settings->interlace_mode           = interlaced == 0 ? VC1_PROGRESSIVE : interlaced == 1 ? VC1_INTERLACE_MBAFF : context->v_settings->interlace_mode;
+  uint8_t paramSets[256];
+  int32_t paramSetsLen;
+
+  context->v_settings = &context->param_set.params;
+  
+  vc1OutVideoDefaults(context->v_settings, video_type, video_format);
+
+  context->v_settings->profile_id = profile;
+  context->v_settings->key_frame_interval       = avctx->gop_size >= 0 ? avctx->gop_size : context->v_settings->key_frame_interval;
+  context->v_settings->b_frame_distance         = avctx->max_b_frames;
+  context->v_settings->closed_entry             = VC1_CLOSED_ENTRY_ON;
+  context->v_settings->interlace_mode           = avctx->flags & CODEC_FLAG_INTERLACED_DCT ? VC1_INTERLACE_MBAFF : VC1_PROGRESSIVE;
   context->v_settings->def_horizontal_size      = avctx->width;
   context->v_settings->def_vertical_size        = avctx->height;
-  context->v_settings->b_frame_distance = 0;
+  context->v_settings->frame_rate               = avctx->time_base.den / avctx->time_base.num;
+
+
+  context->v_settings->bit_rate                 = avctx->bit_rate >= 0 ? avctx->bit_rate : context->v_settings->bit_rate;
+  context->v_settings->min_key_frame_interval   = 1;
   
   context->v_encoder = vc1OutVideoNew(get_rc, context->v_settings, 0, 0xFFFFFFFF, 0, 0);
 
@@ -549,9 +544,6 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
       printf("vc1OutVideoInit failed\n");
       exit(1);
     }      
-
-  uint8_t paramSets[256];
-  int32_t paramSetsLen;
 
   if (vc1OutVideoGetParSets(context->v_encoder,
 			    context->v_settings,
@@ -572,38 +564,42 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
   return 0;
 }
 
- static av_cold void VC1_init_static(AVCodec *codec)
- {
+static av_cold void VC1_init_static(AVCodec *codec)
+{
 }
 
- static const AVOption options[] = {
+#define OFFSET(x) offsetof(VC1Context, x)
+#define VE AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_ENCODING_PARAM
+static const AVOption options[] = {
+  { "vc1profile", "Set VC1 profile (simple | main | advanced)", OFFSET(profile), AV_OPT_TYPE_STRING, { 0 }, 0, 0, VE},
+  { "video_format", "Set the video format (pal | ntsc)", OFFSET(video_format), AV_OPT_TYPE_STRING, { 0 }, 0, 0, VE},
   { NULL },
-    };
+};
 
- static const AVClass class = {
+static const AVClass class = {
   .class_name = "mc_vc1",
-    .item_name  = av_default_item_name,
-    .option     = options,
-    .version    = LIBAVUTIL_VERSION_INT,
-    };
+  .item_name  = av_default_item_name,
+  .option     = options,
+  .version    = LIBAVUTIL_VERSION_INT,
+};
 
- static const AVCodecDefault VC1_defaults[] = {
+static const AVCodecDefault VC1_defaults[] = {
   { NULL },
-    };
+};
 
- AVCodec ff_mc_vc1_encoder = {
+AVCodec ff_mc_vc1_encoder = {
   .name             = "mc_vc1",
-    .type             = AVMEDIA_TYPE_VIDEO,
-    .id               = AV_CODEC_ID_MAIN_CONCEPT_VC1,
-    .priv_data_size   = sizeof(VC1Context),
-    .init             = VC1_init,
-    .encode2          = VC1_frame,
-    .close            = VC1_close,
-    .capabilities     = CODEC_CAP_DELAY | CODEC_CAP_AUTO_THREADS,
-    .long_name        = NULL_IF_CONFIG_SMALL("Main Concept VC1"),
-    .priv_class       = &class,
-    .defaults         = VC1_defaults,
-    .init_static_data = VC1_init_static,    
-    .pix_fmts     = (const enum AVPixelFormat[]) { AV_PIX_FMT_YUV420P, AV_PIX_FMT_NONE}
-
+  .type             = AVMEDIA_TYPE_VIDEO,
+  .id               = AV_CODEC_ID_MAIN_CONCEPT_VC1,
+  .priv_data_size   = sizeof(VC1Context),
+  .init             = VC1_init,
+  .encode2          = VC1_frame,
+  .close            = VC1_close,
+  .capabilities     = CODEC_CAP_DELAY | CODEC_CAP_AUTO_THREADS,
+  .long_name        = NULL_IF_CONFIG_SMALL("Main Concept VC1"),
+  .priv_class       = &class,
+  .defaults         = VC1_defaults,
+  .init_static_data = VC1_init_static,    
+  .pix_fmts     = (const enum AVPixelFormat[]) { AV_PIX_FMT_YUV420P, AV_PIX_FMT_NONE}
+  
 };
