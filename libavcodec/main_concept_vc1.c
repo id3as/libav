@@ -523,8 +523,9 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
   context->v_settings = &context->param_set.params;
   
   vc1OutVideoDefaults(context->v_settings, video_type, video_format);
+  
+  //context->v_settings->profile_id = profile;
 
-  context->v_settings->profile_id = profile;
   context->v_settings->key_frame_interval       = avctx->gop_size >= 0 ? avctx->gop_size : context->v_settings->key_frame_interval;
   context->v_settings->b_frame_distance         = avctx->max_b_frames;
   context->v_settings->closed_entry             = VC1_CLOSED_ENTRY_ON;
@@ -532,11 +533,18 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
   context->v_settings->def_horizontal_size      = avctx->width;
   context->v_settings->def_vertical_size        = avctx->height;
   context->v_settings->frame_rate               = avctx->time_base.den / avctx->time_base.num;
-
-
   context->v_settings->bit_rate                 = avctx->bit_rate >= 0 ? avctx->bit_rate : context->v_settings->bit_rate;
   context->v_settings->min_key_frame_interval   = 1;
   
+  /*
+  double frame_rate = 25;
+  int interlaced = 1;
+  context->v_settings->min_key_frame_interval   = 1;
+  context->v_settings->bit_rate                 = avctx->bit_rate >= 0 ? avctx->bit_rate : context->v_settings->bit_rate;
+  context->v_settings->frame_rate               = frame_rate > 0.0 ? frame_rate : context->v_settings->frame_rate;
+    context->v_settings->interlace_mode           = interlaced == 0 ? VC1_PROGRESSIVE : interlaced == 1 ? VC1_INTERLACE_MBAFF : context->v_settings->interlace_mode;
+  */  
+
   context->v_encoder = vc1OutVideoNew(get_rc, context->v_settings, 0, 0xFFFFFFFF, 0, 0);
 
   context->videobs = open_mem_buf_write(avctx->time_base);
