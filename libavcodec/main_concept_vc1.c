@@ -48,6 +48,7 @@ typedef struct VC1Context {
   bufstream_tt * videobs;
   char *profile;
   char *video_format;
+  int asf_binding_byte;
 
 } VC1Context;
 
@@ -507,25 +508,42 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
   
   int init_options = 0;
   void * opt_list[10];
-
-  int video_type = get_video_type(avctx->width, avctx->height);
-
-  int video_format = context->video_format ? 
-    ((strcmp(context->video_format, "pal") == 0) ? VM_PAL : VM_NTSC) : VM_PAL;
-
-  int profile = context->profile ?
-    ((strcmp(context->profile, "simple") == 0) ? VC1_PROFILE_SIMPLE :
-     (strcmp(context->profile, "main") == 0) ? VC1_PROFILE_MAIN : VC1_PROFILE_ADVANCED) : VC1_PROFILE_MAIN;
-
+  int video_format;
+  int profile;
   uint8_t paramSets[256];
   int32_t paramSetsLen;
+  int video_type = get_video_type(avctx->width, avctx->height);
+
+  if (strcmp(context->profile, "simple") == 0) {
+    profile = VC1_PROFILE_SIMPLE;
+  }
+  else if (strcmp(context->profile, "main") == 0) {
+    profile = VC1_PROFILE_MAIN;
+  }
+  else if (strcmp(context->profile, "advanced") == 0) {
+    profile = VC1_PROFILE_ADVANCED;
+  }
+  else {
+    fprintf(stderr, "Invalid profile %s\n", context->profile);
+    exit(-1);
+  }
+
+  if (strcmp(context->video_format, "pal") == 0) {
+    video_format = VM_PAL;
+  }
+  else if (strcmp(context->video_format, "ntsc") == 0) {
+    video_format = VM_NTSC;
+  }
+  else {
+    fprintf(stderr, "Invalid video_format %s\n", context->video_format);
+    exit(-1);
+  }
 
   context->v_settings = &context->param_set.params;
   
   vc1OutVideoDefaults(context->v_settings, video_type, video_format);
   
-  //context->v_settings->profile_id = profile;
-
+  context->v_settings->profile_id = profile;
   context->v_settings->key_frame_interval       = avctx->gop_size >= 0 ? avctx->gop_size : context->v_settings->key_frame_interval;
   context->v_settings->b_frame_distance         = avctx->max_b_frames;
   context->v_settings->closed_entry             = VC1_CLOSED_ENTRY_ON;
@@ -535,17 +553,8 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
   context->v_settings->frame_rate               = avctx->time_base.den / avctx->time_base.num;
   context->v_settings->bit_rate                 = avctx->bit_rate >= 0 ? avctx->bit_rate : context->v_settings->bit_rate;
   context->v_settings->min_key_frame_interval   = 1;
-  context->v_settings->enable_asf_binding       = 1;
+  context->v_settings->enable_asf_binding       = context->asf_binding_byte ? 1 : 0;
   
-  /*
-  double frame_rate = 25;
-  int interlaced = 1;
-  context->v_settings->min_key_frame_interval   = 1;
-  context->v_settings->bit_rate                 = avctx->bit_rate >= 0 ? avctx->bit_rate : context->v_settings->bit_rate;
-  context->v_settings->frame_rate               = frame_rate > 0.0 ? frame_rate : context->v_settings->frame_rate;
-    context->v_settings->interlace_mode           = interlaced == 0 ? VC1_PROGRESSIVE : interlaced == 1 ? VC1_INTERLACE_MBAFF : context->v_settings->interlace_mode;
-  */  
-
   context->v_encoder = vc1OutVideoNew(get_rc, context->v_settings, 0, 0xFFFFFFFF, 0, 0);
 
   context->videobs = open_mem_buf_write(avctx->time_base);
@@ -589,8 +598,9 @@ static av_cold void VC1_init_static(AVCodec *codec)
 #define OFFSET(x) offsetof(VC1Context, x)
 #define VE AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_ENCODING_PARAM
 static const AVOption options[] = {
-  { "vc1profile", "Set VC1 profile (simple | main | advanced)", OFFSET(profile), AV_OPT_TYPE_STRING, { 0 }, 0, 0, VE},
-  { "video_format", "Set the video format (pal | ntsc)", OFFSET(video_format), AV_OPT_TYPE_STRING, { 0 }, 0, 0, VE},
+  { "vc1profile", "Set VC1 profile (simple | main | advanced)", OFFSET(profile), AV_OPT_TYPE_STRING, { .str = "advanced" }, 0, 0, VE},
+  { "video_format", "Set the video format (pal | ntsc)", OFFSET(video_format), AV_OPT_TYPE_STRING, { .str = "pal" }, 0, 0, VE},
+  { "asf_binding_byte", "Include the ASF binding byte", OFFSET(asf_binding_byte), AV_OPT_TYPE_INT, { .i64 = 1 }, 0, 1, VE},
   { NULL },
 };
 
