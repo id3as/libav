@@ -535,6 +535,7 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
   context->v_settings->frame_rate               = avctx->time_base.den / avctx->time_base.num;
   context->v_settings->bit_rate                 = avctx->bit_rate >= 0 ? avctx->bit_rate : context->v_settings->bit_rate;
   context->v_settings->min_key_frame_interval   = 1;
+  context->v_settings->enable_asf_binding       = 1;
   
   /*
   double frame_rate = 25;
