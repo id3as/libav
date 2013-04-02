@@ -230,7 +230,7 @@ static uint32_t fw_auxinfo(bufstream_tt *bs, uint32_t offs, uint32_t info_ID, vo
       break;
 
     default:
-      printf("unhandled auxinfo %u\n", info_ID);
+      fprintf(stderr, "unhandled auxinfo %u\n", info_ID);
       break;
     }
   return BS_OK;
@@ -325,7 +325,7 @@ static void info_printf(const char * fmt, ...)
   va_end(marker);
 
   strncat(lst, "\r\n", sizeof(lst));
-  printf("%s\n", lst);
+  fprintf(stderr, "%s\n", lst);
 }
 
 
@@ -338,7 +338,7 @@ static void warn_printf(const char * fmt, ...)
   vsnprintf(lst, sizeof(lst), fmt, marker);
   va_end(marker);
 
-  printf("%s\n", lst);
+  fprintf(stderr, "%s\n", lst);
 }
 
 
@@ -351,7 +351,7 @@ static void error_printf(const char * fmt, ...)
   vsnprintf(lst, sizeof(lst), fmt, marker);
   va_end(marker);
 
-  printf("%s\n", lst);
+  fprintf(stderr, "%s\n", lst);
 }
 
 
@@ -364,7 +364,7 @@ static void progress_printf(int32_t percent, const char * fmt, ...)
   vsnprintf(lst, sizeof(lst), fmt, marker);
   va_end(marker);
 
-  printf(" %d - %s\n", percent, lst);
+  fprintf(stderr, " %d - %s\n", percent, lst);
 }
 
 // resource functions dispatcher
@@ -436,7 +436,7 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
 
   if (vc1OutVideoPutFrame(context->v_encoder, b, frame->linesize[0], ctx->width, ctx->height, FOURCC_I420, option_flags, ext_info) == VC1ERROR_FAILED)
     {
-      printf("It failed\n");
+      fprintf(stderr, "It failed\n");
       exit(1);
     }
 
@@ -551,7 +551,7 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
   
   if(vc1OutVideoInit(context->v_encoder, context->videobs, init_options, &opt_list[0]))
     {
-      printf("vc1OutVideoInit failed\n");
+      fprintf(stderr, "vc1OutVideoInit failed\n");
       exit(1);
     }      
 
@@ -559,7 +559,7 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
 			    context->v_settings,
 			    paramSets,
 			    &paramSetsLen) != VC1ERROR_NONE) {
-    printf("vc1OutVideoGetParSets failed\n");
+    fprintf(stderr, "vc1OutVideoGetParSets failed\n");
     exit(1);
   }
 
