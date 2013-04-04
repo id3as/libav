@@ -478,6 +478,7 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
     
     pkt->pts = encoded_frame->pts;
     pkt->dts = encoded_frame->dts;
+    pkt->duration = 1;
 
     if (encoded_frame->type == I_TYPE) {
       pkt->flags |= AV_PKT_FLAG_KEY;
@@ -556,7 +557,7 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
   context->v_settings->bit_rate_mode            = VC1_CBR;
   context->v_settings->min_key_frame_interval   = 1;
   context->v_settings->enable_asf_binding       = context->asf_binding_byte ? 1 : 0;
-  
+
   context->v_encoder = vc1OutVideoNew(get_rc, context->v_settings, 0, 0xFFFFFFFF, 0, 0);
 
   context->videobs = open_mem_buf_write(avctx->time_base);
