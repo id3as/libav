@@ -117,7 +117,8 @@ static void avcodec_init(void)
         return;
     initialized = 1;
 
-    ff_dsputil_static_init();
+    if (CONFIG_DSPUTIL)
+        ff_dsputil_static_init();
 }
 
 int av_codec_is_encoder(const AVCodec *codec)
@@ -660,11 +661,15 @@ do {                                                                    \
         if (avctx->codec_type == AVMEDIA_TYPE_VIDEO) {
             const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(frame->format);
 
-            if (!desc) {
+            planes = av_pix_fmt_count_planes(frame->format);
+            /* workaround for AVHWAccel plane count of 0, buf[0] is used as
+               check for allocated buffers: make libavcodec happy */
+            if (desc && desc->flags & PIX_FMT_HWACCEL)
+                planes = 1;
+            if (!desc || planes <= 0) {
                 ret = AVERROR(EINVAL);
                 goto fail;
             }
-            planes = (desc->flags & PIX_FMT_PLANAR) ? desc->nb_components : 1;
 
             for (i = 0; i < planes; i++) {
                 int v_shift    = (i == 1 || i == 2) ? desc->log2_chroma_h : 0;
@@ -900,7 +905,7 @@ int attribute_align_arg avcodec_open2(AVCodecContext *avctx, const AVCodec *code
     if ((ret = av_opt_set_dict(avctx, &tmp)) < 0)
         goto free_and_end;
 
-    if (avctx->coded_width && avctx->coded_height)
+    if (avctx->coded_width && avctx->coded_height && !avctx->width && !avctx->height)
         avcodec_set_dimensions(avctx, avctx->coded_width, avctx->coded_height);
     else if (avctx->width && avctx->height)
         avcodec_set_dimensions(avctx, avctx->width, avctx->height);
@@ -2197,4 +2202,37 @@ enum AVMediaType avcodec_get_type(enum AVCodecID codec_id)
 int avcodec_is_open(AVCodecContext *s)
 {
     return !!s->internal;
+}
+
+const uint8_t *avpriv_find_start_code(const uint8_t *restrict p,
+                                      const uint8_t *end,
+                                      uint32_t * restrict state)
+{
+    int i;
+
+    assert(p <= end);
+    if (p >= end)
+        return end;
+
+    for (i = 0; i < 3; i++) {
+        uint32_t tmp = *state << 8;
+        *state = tmp + *(p++);
+        if (tmp == 0x100 || p == end)
+            return p;
+    }
+
+    while (p < end) {
+        if      (p[-1] > 1      ) p += 3;
+        else if (p[-2]          ) p += 2;
+        else if (p[-3]|(p[-1]-1)) p++;
+        else {
+            p++;
+            break;
+        }
+    }
+
+    p = FFMIN(p, end) - 4;
+    *state = AV_RB32(p);
+
+    return p + 4;
 }

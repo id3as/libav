@@ -158,39 +158,6 @@ static void mpeg_er_decode_mb(void *opaque, int ref, int mv_dir, int mv_type,
     ff_MPV_decode_mb(s, s->block);
 }
 
-const uint8_t *avpriv_mpv_find_start_code(const uint8_t *restrict p,
-                                          const uint8_t *end,
-                                          uint32_t * restrict state)
-{
-    int i;
-
-    assert(p <= end);
-    if (p >= end)
-        return end;
-
-    for (i = 0; i < 3; i++) {
-        uint32_t tmp = *state << 8;
-        *state = tmp + *(p++);
-        if (tmp == 0x100 || p == end)
-            return p;
-    }
-
-    while (p < end) {
-        if      (p[-1] > 1      ) p += 3;
-        else if (p[-2]          ) p += 2;
-        else if (p[-3]|(p[-1]-1)) p++;
-        else {
-            p++;
-            break;
-        }
-    }
-
-    p = FFMIN(p, end) - 4;
-    *state = AV_RB32(p);
-
-    return p + 4;
-}
-
 /* init common dct for both encoder and decoder */
 av_cold int ff_dct_common_init(MpegEncContext *s)
 {
@@ -266,17 +233,6 @@ static int alloc_frame_buffer(MpegEncContext *s, Picture *pic)
 {
     int r, ret;
 
-    if (s->avctx->hwaccel) {
-        assert(!pic->hwaccel_picture_private);
-        if (s->avctx->hwaccel->priv_data_size) {
-            pic->hwaccel_picture_private = av_mallocz(s->avctx->hwaccel->priv_data_size);
-            if (!pic->hwaccel_picture_private) {
-                av_log(s->avctx, AV_LOG_ERROR, "alloc_frame_buffer() failed (hwaccel private data allocation)\n");
-                return -1;
-            }
-        }
-    }
-
     pic->tf.f = &pic->f;
     if (s->codec_id != AV_CODEC_ID_WMV3IMAGE &&
         s->codec_id != AV_CODEC_ID_VC1IMAGE  &&
@@ -293,8 +249,19 @@ static int alloc_frame_buffer(MpegEncContext *s, Picture *pic)
     if (r < 0 || !pic->f.data[0]) {
         av_log(s->avctx, AV_LOG_ERROR, "get_buffer() failed (%d %p)\n",
                r, pic->f.data[0]);
-        av_freep(&pic->hwaccel_picture_private);
         return -1;
+    }
+
+    if (s->avctx->hwaccel) {
+        assert(!pic->hwaccel_picture_private);
+        if (s->avctx->hwaccel->priv_data_size) {
+            pic->hwaccel_priv_buf = av_buffer_allocz(s->avctx->hwaccel->priv_data_size);
+            if (!pic->hwaccel_priv_buf) {
+                av_log(s->avctx, AV_LOG_ERROR, "alloc_frame_buffer() failed (hwaccel private data allocation)\n");
+                return -1;
+            }
+            pic->hwaccel_picture_private = pic->hwaccel_priv_buf->data;
+        }
     }
 
     if (s->linesize && (s->linesize   != pic->f.linesize[0] ||

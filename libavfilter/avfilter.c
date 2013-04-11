@@ -21,9 +21,11 @@
 
 /* #define DEBUG */
 
+#include "libavutil/avstring.h"
 #include "libavutil/channel_layout.h"
 #include "libavutil/common.h"
 #include "libavutil/imgutils.h"
+#include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/rational.h"
 #include "libavutil/samplefmt.h"
@@ -319,10 +321,35 @@ static const char *filter_name(void *p)
     return filter->filter->name;
 }
 
+static void *filter_child_next(void *obj, void *prev)
+{
+    AVFilterContext *ctx = obj;
+    if (!prev && ctx->filter && ctx->filter->priv_class && ctx->priv)
+        return ctx->priv;
+    return NULL;
+}
+
+static const AVClass *filter_child_class_next(const AVClass *prev)
+{
+    AVFilter **f = NULL;
+
+    while (prev && *(f = av_filter_next(f)))
+        if ((*f)->priv_class == prev)
+            break;
+
+    while (*(f = av_filter_next(f)))
+        if ((*f)->priv_class)
+            return (*f)->priv_class;
+
+    return NULL;
+}
+
 static const AVClass avfilter_class = {
     .class_name = "AVFilter",
     .item_name  = filter_name,
     .version    = LIBAVUTIL_VERSION_INT,
+    .child_next = filter_child_next,
+    .child_class_next = filter_child_class_next,
 };
 
 int avfilter_open(AVFilterContext **filter_ctx, AVFilter *filter, const char *inst_name)
@@ -344,6 +371,11 @@ int avfilter_open(AVFilterContext **filter_ctx, AVFilter *filter, const char *in
         ret->priv     = av_mallocz(filter->priv_size);
         if (!ret->priv)
             goto err;
+    }
+
+    if (filter->priv_class) {
+        *(const AVClass**)ret->priv = filter->priv_class;
+        av_opt_set_defaults(ret->priv);
     }
 
     ret->nb_inputs = pad_count(filter->inputs);
@@ -422,6 +454,9 @@ void avfilter_free(AVFilterContext *filter)
         av_freep(&link);
     }
 
+    if (filter->filter->priv_class)
+        av_opt_free(filter->priv);
+
     av_freep(&filter->name);
     av_freep(&filter->input_pads);
     av_freep(&filter->output_pads);
@@ -431,12 +466,164 @@ void avfilter_free(AVFilterContext *filter)
     av_free(filter);
 }
 
+/* process a list of value1:value2:..., each value corresponding
+ * to subsequent AVOption, in the order they are declared */
+static int process_unnamed_options(AVFilterContext *ctx, AVDictionary **options,
+                                   const char *args)
+{
+    const AVOption *o = NULL;
+    const char *p = args;
+    char *val;
+
+    while (*p) {
+        o = av_opt_next(ctx->priv, o);
+        if (!o) {
+            av_log(ctx, AV_LOG_ERROR, "More options provided than "
+                   "this filter supports.\n");
+            return AVERROR(EINVAL);
+        }
+        if (o->type == AV_OPT_TYPE_CONST)
+            continue;
+
+        val = av_get_token(&p, ":");
+        if (!val)
+            return AVERROR(ENOMEM);
+
+        av_dict_set(options, o->name, val, 0);
+
+        av_freep(&val);
+        if (*p)
+            p++;
+    }
+
+    return 0;
+}
+
 int avfilter_init_filter(AVFilterContext *filter, const char *args, void *opaque)
 {
+    AVDictionary *options = NULL;
+    AVDictionaryEntry *e;
     int ret=0;
 
+    if (args && *args) {
+        if (!filter->filter->priv_class) {
+            av_log(filter, AV_LOG_ERROR, "This filter does not take any "
+                   "options, but options were provided: %s.\n", args);
+            return AVERROR(EINVAL);
+        }
+
+#if FF_API_OLD_FILTER_OPTS
+        if (!strcmp(filter->filter->name, "scale") &&
+            strchr(args, ':') < strchr(args, '=')) {
+            /* old w:h:flags=<flags> syntax */
+            char *copy = av_strdup(args);
+            char *p;
+
+            av_log(filter, AV_LOG_WARNING, "The <w>:<h>:flags=<flags> option "
+                   "syntax is deprecated. Use either <w>:<h>:<flags> or "
+                   "w=<w>:h=<h>:flags=<flags>.\n");
+
+            if (!copy) {
+                ret = AVERROR(ENOMEM);
+                goto fail;
+            }
+
+            p = strrchr(copy, ':');
+            if (p) {
+                *p++ = 0;
+                ret = av_dict_parse_string(&options, p, "=", ":", 0);
+            }
+            if (ret >= 0)
+                ret = process_unnamed_options(filter, &options, copy);
+            av_freep(&copy);
+
+            if (ret < 0)
+                goto fail;
+        } else
+#endif
+
+        if (strchr(args, '=')) {
+            /* assume a list of key1=value1:key2=value2:... */
+            ret = av_dict_parse_string(&options, args, "=", ":", 0);
+            if (ret < 0)
+                goto fail;
+#if FF_API_OLD_FILTER_OPTS
+        } else if (!strcmp(filter->filter->name, "format")     ||
+                   !strcmp(filter->filter->name, "noformat")   ||
+                   !strcmp(filter->filter->name, "frei0r")     ||
+                   !strcmp(filter->filter->name, "frei0r_src") ||
+                   !strcmp(filter->filter->name, "ocv")) {
+            /* a hack for compatibility with the old syntax
+             * replace colons with |s */
+            char *copy = av_strdup(args);
+            char *p    = copy;
+            int nb_leading = 0; // number of leading colons to skip
+
+            if (!copy) {
+                ret = AVERROR(ENOMEM);
+                goto fail;
+            }
+
+            if (!strcmp(filter->filter->name, "frei0r") ||
+                !strcmp(filter->filter->name, "ocv"))
+                nb_leading = 1;
+            else if (!strcmp(filter->filter->name, "frei0r_src"))
+                nb_leading = 3;
+
+            while (nb_leading--) {
+                p = strchr(p, ':');
+                if (!p) {
+                    p = copy + strlen(copy);
+                    break;
+                }
+                p++;
+            }
+
+            if (strchr(p, ':')) {
+                av_log(filter, AV_LOG_WARNING, "This syntax is deprecated. Use "
+                       "'|' to separate the list items.\n");
+            }
+
+            while ((p = strchr(p, ':')))
+                *p++ = '|';
+
+            ret = process_unnamed_options(filter, &options, copy);
+            av_freep(&copy);
+
+            if (ret < 0)
+                goto fail;
+#endif
+        } else {
+            ret = process_unnamed_options(filter, &options, args);
+            if (ret < 0)
+                goto fail;
+        }
+    }
+
+    if (filter->filter->priv_class) {
+        ret = av_opt_set_dict(filter->priv, &options);
+        if (ret < 0) {
+            av_log(filter, AV_LOG_ERROR, "Error applying options to the filter.\n");
+            goto fail;
+        }
+    }
+
     if (filter->filter->init)
-        ret = filter->filter->init(filter, args);
+        ret = filter->filter->init(filter);
+    else if (filter->filter->init_dict)
+        ret = filter->filter->init_dict(filter, &options);
+    if (ret < 0)
+        goto fail;
+
+    if ((e = av_dict_get(options, "", NULL, AV_DICT_IGNORE_SUFFIX))) {
+        av_log(filter, AV_LOG_ERROR, "No such option: %s.\n", e->key);
+        ret = AVERROR_OPTION_NOT_FOUND;
+        goto fail;
+    }
+
+fail:
+    av_dict_free(&options);
+
     return ret;
 }
 
@@ -505,4 +692,9 @@ int ff_filter_frame(AVFilterLink *link, AVFrame *frame)
         out = frame;
 
     return filter_frame(link, out);
+}
+
+const AVClass *avfilter_get_class(void)
+{
+    return &avfilter_class;
 }

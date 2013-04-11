@@ -27,6 +27,7 @@ HEADERS   += $(HEADERS-yes)
 
 DEP_LIBS := $(foreach NAME,$(FFLIBS),lib$(NAME)/$($(CONFIG_SHARED:yes=S)LIBNAME))
 
+SRC_DIR    := $(SRC_PATH)/lib$(NAME)
 ALLHEADERS := $(subst $(SRC_DIR)/,$(SUBDIR),$(wildcard $(SRC_DIR)/*.h $(SRC_DIR)/$(ARCH)/*.h))
 SKIPHEADERS += $(ARCH_HEADERS:%=$(ARCH)/%) $(SKIPHEADERS-)
 SKIPHEADERS := $(SKIPHEADERS:%=$(SUBDIR)%)
@@ -50,7 +51,7 @@ $(TOOLOBJS): | tools
 
 OBJDIRS := $(OBJDIRS) $(dir $(OBJS) $(HOBJS) $(HOSTOBJS) $(TESTOBJS))
 
-CLEANSUFFIXES     = *.d *.o *~ *.h.c *.map *.ver
+CLEANSUFFIXES     = *.d *.o *~ *.h.c *.map *.ver *.gcno *.gcda
 DISTCLEANSUFFIXES = *.pc
 LIBSUFFIXES       = *.a *.lib *.so *.so.* *.dylib *.dll *.def *.dll.a
 

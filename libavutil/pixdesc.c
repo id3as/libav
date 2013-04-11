@@ -1365,6 +1365,30 @@ const AVPixFmtDescriptor av_pix_fmt_descriptors[AV_PIX_FMT_NB] = {
         .log2_chroma_h = 1,
         .flags = PIX_FMT_HWACCEL,
     },
+    [AV_PIX_FMT_XYZ12LE] = {
+        .name = "xyz12le",
+        .nb_components = 3,
+        .log2_chroma_w = 0,
+        .log2_chroma_h = 0,
+        .comp = {
+            { 0, 5, 1, 4, 11 },       /* X */
+            { 0, 5, 3, 4, 11 },       /* Y */
+            { 0, 5, 5, 4, 11 },       /* Z */
+      },
+      /*.flags = -- not used*/
+    },
+    [AV_PIX_FMT_XYZ12BE] = {
+        .name = "xyz12be",
+        .nb_components = 3,
+        .log2_chroma_w = 0,
+        .log2_chroma_h = 0,
+        .comp = {
+            { 0, 5, 1, 4, 11 },       /* X */
+            { 0, 5, 3, 4, 11 },       /* Y */
+            { 0, 5, 5, 4, 11 },       /* Z */
+       },
+        .flags = PIX_FMT_BE,
+    },
 };
 
 static enum AVPixelFormat get_pix_fmt_internal(const char *name)
@@ -1472,4 +1496,19 @@ int av_pix_fmt_get_chroma_sub_sample(enum AVPixelFormat pix_fmt,
     *v_shift = desc->log2_chroma_h;
 
     return 0;
+}
+
+int av_pix_fmt_count_planes(enum AVPixelFormat pix_fmt)
+{
+    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(pix_fmt);
+    int i, planes[4] = { 0 }, ret = 0;
+
+    if (!desc)
+        return AVERROR(EINVAL);
+
+    for (i = 0; i < desc->nb_components; i++)
+        planes[desc->comp[i].plane] = 1;
+    for (i = 0; i < FF_ARRAY_ELEMS(planes); i++)
+        ret += planes[i];
+    return ret;
 }

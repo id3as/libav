@@ -428,6 +428,9 @@ static int update_context_from_thread(AVCodecContext *dst, AVCodecContext *src, 
         dst->colorspace  = src->colorspace;
         dst->color_range = src->color_range;
         dst->chroma_sample_location = src->chroma_sample_location;
+
+        dst->hwaccel = src->hwaccel;
+        dst->hwaccel_context = src->hwaccel_context;
     }
 
     if (for_user) {
@@ -890,6 +893,7 @@ void ff_thread_flush(AVCodecContext *avctx)
         PerThreadContext *p = &fctx->threads[i];
         // Make sure decode flush calls with size=0 won't return old frames
         p->got_frame = 0;
+        av_frame_unref(&p->frame);
 
         release_delayed_buffers(p);
     }
