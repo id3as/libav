@@ -1,6 +1,6 @@
 /*
- * H.264 encoding using the x264 library
- * Copyright (C) 2005  Mans Rullgard <mans@mansr.com>
+ * VC1 encoding using the Main Concept library
+ * Copyright (C) 2013  id3as-company Ltd
  *
  * This file is part of Libav.
  *
@@ -18,7 +18,7 @@
  * License along with Libav; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
-
+#ifdef CONFIG_MCVC1 1
 #include "libavutil/internal.h"
 #include "libavutil/opt.h"
 #include "libavutil/mem.h"
@@ -634,3 +634,4 @@ AVCodec ff_mc_vc1_encoder = {
   .pix_fmts     = (const enum AVPixelFormat[]) { AV_PIX_FMT_YUV420P, AV_PIX_FMT_NONE}
   
 };
+#endif 
