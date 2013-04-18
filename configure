@@ -201,7 +201,7 @@ External library support:
   --enable-libvorbis       enable Vorbis encoding via libvorbis [no]
   --enable-libvpx          enable VP8 and VP9 de/encoding via libvpx [no]
   --enable-libx264         enable H.264 encoding via x264 [no]
-  --enable-mcvc1           enable VC1 encoding via Main Concept [no]
+  --enable-libmcvc1        enable VC1 encoding via Main Concept [no]
   --enable-libxavs         enable AVS encoding via xavs [no]
   --enable-libxvid         enable Xvid encoding via xvidcore,
                            native MPEG-4/Xvid encoder exists [no]
@@ -1055,7 +1055,7 @@ EXTERNAL_LIBRARY_LIST="
     libvorbis
     libvpx
     libx264
-    mcvc1
+    libmcvc1
     libxavs
     libxvid
     openssl
@@ -1782,7 +1782,7 @@ libvpx_vp8_encoder_deps="libvpx"
 libvpx_vp9_decoder_deps="libvpx"
 libvpx_vp9_encoder_deps="libvpx"
 libx264_encoder_deps="libx264"
-mcvc1_encoder_deps="demo_enc_vc1"
+libmcvc1_encoder_deps="libmcvc1"
 libxavs_encoder_deps="libxavs"
 libxvid_encoder_deps="libxvid"
 
@@ -3632,7 +3632,7 @@ enabled libvpx     && {
 enabled libx264    && require  libx264 x264.h x264_encoder_encode -lx264 &&
                       { check_cpp_condition x264.h "X264_BUILD >= 118" ||
                         die "ERROR: libx264 version must be >= 0.118."; }
-enabled mcvc1      && require  mcvc1 enc_vc1.h vc1OutVideoPutFrame -ldemo_enc_vc1
+enabled libmcvc1   && require  libmcvc1 enc_vc1.h vc1OutVideoPutFrame -ldemo_enc_vc1
 enabled libxavs    && require  libxavs xavs.h xavs_encoder_encode -lxavs
 enabled libxvid    && require  libxvid xvid.h xvid_global -lxvidcore
 enabled openssl    && { check_lib openssl/ssl.h SSL_library_init -lssl -lcrypto ||

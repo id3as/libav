@@ -1,6 +1,6 @@
 /*
- * H.264 encoding using the x264 library
- * Copyright (C) 2005  Mans Rullgard <mans@mansr.com>
+ * VC1 encoding using the Main Concept library
+ * Copyright (C) 2013  id3as-company Ltd
  *
  * This file is part of Libav.
  *
@@ -18,7 +18,6 @@
  * License along with Libav; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
-
 #include "libavutil/internal.h"
 #include "libavutil/opt.h"
 #include "libavutil/mem.h"
@@ -608,7 +607,7 @@ static const AVOption options[] = {
 };
 
 static const AVClass class = {
-  .class_name = "mc_vc1",
+  .class_name = "libmcvc1",
   .item_name  = av_default_item_name,
   .option     = options,
   .version    = LIBAVUTIL_VERSION_INT,
@@ -618,8 +617,8 @@ static const AVCodecDefault VC1_defaults[] = {
   { NULL },
 };
 
-AVCodec ff_mc_vc1_encoder = {
-  .name             = "mc_vc1",
+AVCodec ff_libmcvc1_encoder = {
+  .name             = "libmcvc1",
   .type             = AVMEDIA_TYPE_VIDEO,
   .id               = AV_CODEC_ID_MAIN_CONCEPT_VC1,
   .priv_data_size   = sizeof(VC1Context),
