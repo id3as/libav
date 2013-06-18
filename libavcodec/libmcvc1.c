@@ -544,9 +544,10 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
   vc1OutVideoDefaults(context->v_settings, video_type, video_format);
   
   context->v_settings->profile_id = profile;
+  context->v_settings->level_id = VC1_LEVEL4;
   context->v_settings->key_frame_interval       = avctx->gop_size >= 0 ? avctx->gop_size : context->v_settings->key_frame_interval;
   context->v_settings->b_frame_distance         = avctx->max_b_frames;
-  context->v_settings->closed_entry             = VC1_CLOSED_ENTRY_ON;
+  context->v_settings->closed_entry             = VC1_CLOSED_ENTRY_OFF;
   context->v_settings->interlace_mode           = avctx->flags & CODEC_FLAG_INTERLACED_DCT ? VC1_INTERLACE_MBAFF : VC1_PROGRESSIVE;
   context->v_settings->def_horizontal_size      = avctx->width;
   context->v_settings->def_vertical_size        = avctx->height;
@@ -556,6 +557,7 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
   context->v_settings->bit_rate_mode            = VC1_CBR;
   context->v_settings->min_key_frame_interval   = 1;
   context->v_settings->enable_asf_binding       = context->asf_binding_byte ? 1 : 0;
+  context->v_settings->num_threads              = avctx->thread_count;
 
   context->v_encoder = vc1OutVideoNew(get_rc, context->v_settings, 0, 0xFFFFFFFF, 0, 0);
 
