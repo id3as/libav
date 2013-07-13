@@ -3632,7 +3632,7 @@ enabled libvpx     && {
 enabled libx264    && require  libx264 x264.h x264_encoder_encode -lx264 &&
                       { check_cpp_condition x264.h "X264_BUILD >= 118" ||
                         die "ERROR: libx264 version must be >= 0.118."; }
-enabled libmcvc1   && require  libmcvc1 enc_vc1.h vc1OutVideoPutFrame -ldemo_enc_vc1
+enabled libmcvc1   && require  libmcvc1 enc_vc1.h vc1OutVideoPutFrame -lmc_enc_vc1
 enabled libxavs    && require  libxavs xavs.h xavs_encoder_encode -lxavs
 enabled libxvid    && require  libxvid xvid.h xvid_global -lxvidcore
 enabled openssl    && { check_lib openssl/ssl.h SSL_library_init -lssl -lcrypto ||
