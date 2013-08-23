@@ -554,8 +554,8 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
   context->v_settings->def_vertical_size        = avctx->height;
   context->v_settings->frame_rate               = avctx->time_base.den / avctx->time_base.num;
   context->v_settings->bit_rate                 = avctx->bit_rate >= 0 ? avctx->bit_rate : context->v_settings->bit_rate;
-  context->v_settings->max_bit_rate             = context->v_settings->bit_rate * 1.1;
-  context->v_settings->bit_rate_mode            = VC1_CBR;
+  context->v_settings->max_bit_rate             = avctx->rc_max_rate >= 0 ? avctx->rc_max_rate : context->v_settings->bit_rate * 1.1;
+  context->v_settings->bit_rate_mode            = VC1_VBR;
   context->v_settings->min_key_frame_interval   = 1;
   context->v_settings->enable_asf_binding       = context->asf_binding_byte ? 1 : 0;
   context->v_settings->num_threads              = avctx->thread_count;
