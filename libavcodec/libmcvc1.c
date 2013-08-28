@@ -559,6 +559,9 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
   context->v_settings->min_key_frame_interval   = 1;
   context->v_settings->enable_asf_binding       = context->asf_binding_byte ? 1 : 0;
   context->v_settings->num_threads              = avctx->thread_count;
+  context->v_settings->sar_width = 1;
+  context->v_settings->sar_height = 1;
+
 
   context->v_encoder = vc1OutVideoNew(get_rc, context->v_settings, 0, 0xFFFFFFFF, 0, 0);
 
