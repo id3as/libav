@@ -45,8 +45,8 @@ typedef struct VC1Context {
   struct vc1_v_settings *v_settings;
   vc1venc_tt * v_encoder;
   bufstream_tt * videobs;
-  char *profile;
-  int level;
+  //  char *profile;
+  //  int level;
   char *video_format;
   int asf_binding_byte;
 
@@ -515,17 +515,17 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
   int32_t paramSetsLen;
   int video_type = get_video_type(avctx->width, avctx->height);
 
-  if (strcmp(context->profile, "simple") == 0) {
+  if (avctx->profile == FF_PROFILE_VC1_SIMPLE) {
     profile = VC1_PROFILE_SIMPLE;
   }
-  else if (strcmp(context->profile, "main") == 0) {
+  else if (avctx->profile == FF_PROFILE_VC1_MAIN) {
     profile = VC1_PROFILE_MAIN;
   }
-  else if (strcmp(context->profile, "advanced") == 0) {
+  else if (avctx->profile == FF_PROFILE_VC1_ADVANCED) {
     profile = VC1_PROFILE_ADVANCED;
   }
   else {
-    fprintf(stderr, "Invalid profile %s\n", context->profile);
+    fprintf(stderr, "Invalid profile %d\n", avctx->profile);
     exit(-1);
   }
 
@@ -545,7 +545,7 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
   vc1OutVideoDefaults(context->v_settings, video_type, video_format);
   
   context->v_settings->profile_id 		= profile;
-  context->v_settings->level_id 		= context->level;
+  context->v_settings->level_id 		= avctx->level;
   context->v_settings->key_frame_interval       = avctx->gop_size >= 0 ? avctx->gop_size : context->v_settings->key_frame_interval;
   context->v_settings->b_frame_distance         = avctx->max_b_frames;
   context->v_settings->closed_entry             = VC1_CLOSED_ENTRY_OFF;
@@ -606,8 +606,8 @@ static av_cold void VC1_init_static(AVCodec *codec)
 #define OFFSET(x) offsetof(VC1Context, x)
 #define VE AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_ENCODING_PARAM
 static const AVOption options[] = {
-  { "vc1profile", "Set VC1 profile (simple | main | advanced)", OFFSET(profile), AV_OPT_TYPE_STRING, { .str = "advanced" }, 0, 0, VE},
-  { "vc1level", "Set VC1 level (0-4)", OFFSET(level), AV_OPT_TYPE_INT, { .i64 = 3 }, 0, 4, VE},
+  //  { "vc1profile", "Set VC1 profile (simple | main | advanced)", OFFSET(profile), AV_OPT_TYPE_STRING, { .str = "advanced" }, 0, 0, VE},
+  //  { "vc1level", "Set VC1 level (0-4)", OFFSET(level), AV_OPT_TYPE_INT, { .i64 = 3 }, 0, 4, VE},
   { "video_format", "Set the video format (pal | ntsc)", OFFSET(video_format), AV_OPT_TYPE_STRING, { .str = "pal" }, 0, 0, VE},
   { "asf_binding_byte", "Include the ASF binding byte", OFFSET(asf_binding_byte), AV_OPT_TYPE_INT, { .i64 = 1 }, 0, 1, VE},
   { NULL },

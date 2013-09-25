@@ -42,7 +42,7 @@ typedef struct X264Context {
     AVFrame         out_pic;
     char *preset;
     char *tune;
-    char *profile;
+  //    char *profile;
     int fastfirstpass;
     float crf;
     float crf_max;
@@ -232,6 +232,7 @@ static int convert_pix_fmt(enum AVPixelFormat pix_fmt)
 static av_cold int X264_init(AVCodecContext *avctx)
 {
     X264Context *x4 = avctx->priv_data;
+    const char *profile;
 
     x264_param_default(&x4->params);
 
@@ -379,9 +380,21 @@ static av_cold int X264_init(AVCodecContext *avctx)
     if (x4->nal_hrd >= 0)
         x4->params.i_nal_hrd = x4->nal_hrd;
 
-    if (x4->profile)
-        if (x264_param_apply_profile(&x4->params, x4->profile) < 0) {
-            av_log(avctx, AV_LOG_ERROR, "Error setting profile %s.\n", x4->profile);
+    switch (avctx->profile) {
+    case FF_PROFILE_H264_BASELINE: profile = "baseline"; break;
+    case FF_PROFILE_H264_MAIN: profile = "main"; break;
+    case FF_PROFILE_H264_HIGH: profile = "high"; break;
+    case FF_PROFILE_H264_HIGH_10: profile = "high10"; break;
+    case FF_PROFILE_H264_HIGH_422: profile = "high422"; break;
+    case FF_PROFILE_H264_HIGH_444: profile = "high444"; break;
+    default:
+      av_log(avctx, AV_LOG_ERROR, "Error mapping profile %d.\n", avctx->profile);
+      return AVERROR(EINVAL);
+    }
+
+    if (profile)
+        if (x264_param_apply_profile(&x4->params, profile) < 0) {
+            av_log(avctx, AV_LOG_ERROR, "Error setting profile %s.\n", profile);
             return AVERROR(EINVAL);
         }
 
@@ -502,7 +515,7 @@ static av_cold void X264_init_static(AVCodec *codec)
 static const AVOption options[] = {
     { "preset",        "Set the encoding preset (cf. x264 --fullhelp)",   OFFSET(preset),        AV_OPT_TYPE_STRING, { .str = "medium" }, 0, 0, VE},
     { "tune",          "Tune the encoding params (cf. x264 --fullhelp)",  OFFSET(tune),          AV_OPT_TYPE_STRING, { 0 }, 0, 0, VE},
-    { "profile",       "Set profile restrictions (cf. x264 --fullhelp) ", OFFSET(profile),       AV_OPT_TYPE_STRING, { 0 }, 0, 0, VE},
+    //    { "profile",       "Set profile restrictions (cf. x264 --fullhelp) ", OFFSET(profile),       AV_OPT_TYPE_STRING, { 0 }, 0, 0, VE},
     { "fastfirstpass", "Use fast settings when encoding first pass",      OFFSET(fastfirstpass), AV_OPT_TYPE_INT,    { .i64 = 1 }, 0, 1, VE},
     { "crf",           "Select the quality for constant quality mode",    OFFSET(crf),           AV_OPT_TYPE_FLOAT,  {.dbl = -1 }, -1, FLT_MAX, VE },
     { "crf_max",       "In CRF mode, prevents VBV from lowering quality beyond this point.",OFFSET(crf_max), AV_OPT_TYPE_FLOAT, {.dbl = -1 }, -1, FLT_MAX, VE },
