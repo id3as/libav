@@ -45,8 +45,6 @@ typedef struct VC1Context {
   struct vc1_v_settings *v_settings;
   vc1venc_tt * v_encoder;
   bufstream_tt * videobs;
-  //  char *profile;
-  //  int level;
   char *video_format;
   int asf_binding_byte;
 
@@ -506,7 +504,6 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
  {
   VC1Context *context = avctx->priv_data;
   
-  
   int init_options = 0;
   void * opt_list[10];
   int video_format;
@@ -606,8 +603,6 @@ static av_cold void VC1_init_static(AVCodec *codec)
 #define OFFSET(x) offsetof(VC1Context, x)
 #define VE AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_ENCODING_PARAM
 static const AVOption options[] = {
-  //  { "vc1profile", "Set VC1 profile (simple | main | advanced)", OFFSET(profile), AV_OPT_TYPE_STRING, { .str = "advanced" }, 0, 0, VE},
-  //  { "vc1level", "Set VC1 level (0-4)", OFFSET(level), AV_OPT_TYPE_INT, { .i64 = 3 }, 0, 4, VE},
   { "video_format", "Set the video format (pal | ntsc)", OFFSET(video_format), AV_OPT_TYPE_STRING, { .str = "pal" }, 0, 0, VE},
   { "asf_binding_byte", "Include the ASF binding byte", OFFSET(asf_binding_byte), AV_OPT_TYPE_INT, { .i64 = 1 }, 0, 1, VE},
   { NULL },
