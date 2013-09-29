@@ -415,10 +415,11 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
   void * ext_info_stack[16] = {0};
   unsigned int option_flags = OPT_EXT_PARAM_TIMESTAMPS;
   void ** ext_info = &ext_info_stack[0];
-  int plane1_size = frame->linesize[0] * ctx->height;
-  int plane2_size = frame->linesize[1] * ctx->height / 2;
-  int plane3_size = frame->linesize[2] * ctx->height / 2;
-  int size = plane1_size + plane2_size + plane3_size;
+  int half_width = ctx->width / 2;
+  int half_height = ctx->height / 2;
+  int y_plane_size = ctx->width * ctx->height;
+  int uv_plane_size = half_width * half_height;
+  int size = y_plane_size + uv_plane_size + uv_plane_size;
   uint8_t *b = malloc(size);
   struct sample_info_struct si;
   struct encoder_frame *encoded_frame;
@@ -429,11 +430,22 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
   si.rtStart = av_rescale_q(frame->pts, ctx->time_base, ONE_HUNDRED_NANOS);
   si.rtStop = si.rtStart + (10000000 / context->v_settings->frame_rate);   
 
-  memcpy(b, frame->data[0], plane1_size);
-  memcpy(b + plane1_size, frame->data[1], plane2_size);
-  memcpy(b + plane1_size + plane2_size, frame->data[2], plane3_size);
+  // Y Plane
+  for (int i = 0; i < ctx->height; i++) {
+    memcpy(b + (i * ctx->width), frame->data[0] + (frame->linesize[0] * i), ctx->width);
+  }
 
-  if (vc1OutVideoPutFrame(context->v_encoder, b, frame->linesize[0], ctx->width, ctx->height, FOURCC_I420, option_flags, ext_info) == VC1ERROR_FAILED)
+  // U Plane
+  for (int i = 0; i < half_height; i++) {
+    memcpy(b + y_plane_size + (i * half_width), frame->data[1] + (frame->linesize[1] * i), half_width);
+  }
+
+  // V Plane
+  for (int i = 0; i < half_height; i++) {
+    memcpy(b + y_plane_size + uv_plane_size + (i * half_width), frame->data[2] + (frame->linesize[2] * i), half_width);
+  }
+
+  if (vc1OutVideoPutFrame(context->v_encoder, b, ctx->width, ctx->width, ctx->height, FOURCC_I420, option_flags, ext_info) == VC1ERROR_FAILED)
     {
       fprintf(stderr, "It failed\n");
       exit(1);
