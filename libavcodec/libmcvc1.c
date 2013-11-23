@@ -47,6 +47,7 @@ typedef struct VC1Context {
   bufstream_tt * videobs;
   char *video_format;
   int asf_binding_byte;
+  int done;
 
 } VC1Context;
 
@@ -323,7 +324,7 @@ static void info_printf(const char * fmt, ...)
   vsnprintf(lst, sizeof(lst), fmt, marker);
   va_end(marker);
 
-  strncat(lst, "\r\n", sizeof(lst));
+  strncat(lst, "\r\n", sizeof(lst) - 1);
   fprintf(stderr, "%s\n", lst);
 }
 
@@ -411,47 +412,57 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
 		     int *got_packet)
 {
   VC1Context *context = ctx->priv_data;
-
-  void * ext_info_stack[16] = {0};
-  unsigned int option_flags = OPT_EXT_PARAM_TIMESTAMPS;
-  void ** ext_info = &ext_info_stack[0];
-  int half_width = ctx->width / 2;
-  int half_height = ctx->height / 2;
-  int y_plane_size = ctx->width * ctx->height;
-  int uv_plane_size = half_width * half_height;
-  int size = y_plane_size + uv_plane_size + uv_plane_size;
-  uint8_t *b = malloc(size);
-  struct sample_info_struct si;
   struct encoder_frame *encoded_frame;
 
-  ext_info_stack[0] = &si;
-  si.flags = 0;
-  si.mode = 0;
-  si.rtStart = av_rescale_q(frame->pts, ctx->time_base, ONE_HUNDRED_NANOS);
-  si.rtStop = si.rtStart + (10000000 / context->v_settings->frame_rate);   
-
-  // Y Plane
-  for (int i = 0; i < ctx->height; i++) {
-    memcpy(b + (i * ctx->width), frame->data[0] + (frame->linesize[0] * i), ctx->width);
-  }
-
-  // U Plane
-  for (int i = 0; i < half_height; i++) {
-    memcpy(b + y_plane_size + (i * half_width), frame->data[1] + (frame->linesize[1] * i), half_width);
-  }
-
-  // V Plane
-  for (int i = 0; i < half_height; i++) {
-    memcpy(b + y_plane_size + uv_plane_size + (i * half_width), frame->data[2] + (frame->linesize[2] * i), half_width);
-  }
-
-  if (vc1OutVideoPutFrame(context->v_encoder, b, ctx->width, ctx->width, ctx->height, FOURCC_I420, option_flags, ext_info) == VC1ERROR_FAILED)
+  if (frame == NULL)
     {
-      fprintf(stderr, "It failed\n");
-      exit(1);
+      if (!context->done) 
+	{
+	  vc1OutVideoDone(context->v_encoder, 0);
+	  context->done = 1;
+	}
     }
-
-  free(b);
+  else
+    {
+      void * ext_info_stack[16] = {0};
+      unsigned int option_flags = OPT_EXT_PARAM_TIMESTAMPS;
+      void ** ext_info = &ext_info_stack[0];
+      int half_width = ctx->width / 2;
+      int half_height = ctx->height / 2;
+      int y_plane_size = ctx->width * ctx->height;
+      int uv_plane_size = half_width * half_height;
+      int size = y_plane_size + uv_plane_size + uv_plane_size;
+      uint8_t *b = malloc(size);
+      struct sample_info_struct si;
+      
+      ext_info_stack[0] = &si;
+      si.flags = 0;
+      si.mode = 0;
+      si.rtStart = av_rescale_q(frame->pts, ctx->time_base, ONE_HUNDRED_NANOS);
+      si.rtStop = si.rtStart + (10000000 / context->v_settings->frame_rate);   
+      
+      // Y Plane
+      for (int i = 0; i < ctx->height; i++) {
+	memcpy(b + (i * ctx->width), frame->data[0] + (frame->linesize[0] * i), ctx->width);
+      }
+      
+      // U Plane
+      for (int i = 0; i < half_height; i++) {
+	memcpy(b + y_plane_size + (i * half_width), frame->data[1] + (frame->linesize[1] * i), half_width);
+      }
+      
+      // V Plane
+      for (int i = 0; i < half_height; i++) {
+	memcpy(b + y_plane_size + uv_plane_size + (i * half_width), frame->data[2] + (frame->linesize[2] * i), half_width);
+      }
+      
+      if (vc1OutVideoPutFrame(context->v_encoder, b, ctx->width, ctx->width, ctx->height, FOURCC_I420, option_flags, ext_info) == VC1ERROR_FAILED)
+	{
+	  exit(1);
+	}
+      
+      free(b);
+    }
 
   /*
   video_frame_tt v_frame;
@@ -482,6 +493,7 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
   encoded_frame = read_frame(context->videobs);
   
   if (encoded_frame) {
+
     ff_alloc_packet(pkt, encoded_frame->data_size);
     
     memcpy(pkt->data, encoded_frame->bfr, encoded_frame->data_size);
@@ -523,6 +535,8 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
   uint8_t paramSets[256];
   int32_t paramSetsLen;
   int video_type = get_video_type(avctx->width, avctx->height);
+
+  context->done = 0;
 
   if (avctx->profile == FF_PROFILE_VC1_SIMPLE) {
     profile = VC1_PROFILE_SIMPLE;
