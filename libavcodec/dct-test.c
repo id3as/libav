@@ -47,8 +47,6 @@
 #include "x86/idct_xvid.h"
 #include "dctref.h"
 
-#undef printf
-
 // BFIN
 void ff_bfin_idct(int16_t *block);
 void ff_bfin_fdct(int16_t *block);
@@ -62,8 +60,6 @@ void ff_simple_idct_arm(int16_t *data);
 void ff_simple_idct_armv5te(int16_t *data);
 void ff_simple_idct_armv6(int16_t *data);
 void ff_simple_idct_neon(int16_t *data);
-
-void ff_simple_idct_axp(int16_t *data);
 
 struct algo {
     const char *name;
@@ -84,7 +80,11 @@ static const struct algo fdct_tab[] = {
 
 #if HAVE_MMX_INLINE
     { "MMX",            ff_fdct_mmx,           NO_PERM,   AV_CPU_FLAG_MMX     },
+#endif
+#if HAVE_MMXEXT_INLINE
     { "MMXEXT",         ff_fdct_mmxext,        NO_PERM,   AV_CPU_FLAG_MMXEXT  },
+#endif
+#if HAVE_SSE2_INLINE
     { "SSE2",           ff_fdct_sse2,          NO_PERM,   AV_CPU_FLAG_SSE2    },
 #endif
 
@@ -108,7 +108,11 @@ static const struct algo idct_tab[] = {
 #if HAVE_MMX_INLINE
     { "SIMPLE-MMX",     ff_simple_idct_mmx,  MMX_SIMPLE_PERM, AV_CPU_FLAG_MMX },
     { "XVID-MMX",       ff_idct_xvid_mmx,      NO_PERM,   AV_CPU_FLAG_MMX,  1 },
+#endif
+#if HAVE_MMXEXT_INLINE
     { "XVID-MMXEXT",    ff_idct_xvid_mmxext,   NO_PERM,   AV_CPU_FLAG_MMXEXT, 1 },
+#endif
+#if HAVE_SSE2_INLINE
     { "XVID-SSE2",      ff_idct_xvid_sse2,     SSE2_PERM, AV_CPU_FLAG_SSE2, 1 },
 #endif
 
@@ -126,12 +130,8 @@ static const struct algo idct_tab[] = {
 #if HAVE_ARMV6
     { "SIMPLE-ARMV6",   ff_simple_idct_armv6,  MMX_PERM,  AV_CPU_FLAG_ARMV6   },
 #endif
-#if HAVE_NEON
+#if HAVE_NEON && ARCH_ARM
     { "SIMPLE-NEON",    ff_simple_idct_neon, PARTTRANS_PERM, AV_CPU_FLAG_NEON },
-#endif
-
-#if ARCH_ALPHA
-    { "SIMPLE-ALPHA",   ff_simple_idct_axp,    NO_PERM },
 #endif
 
     { 0 }
@@ -523,5 +523,8 @@ int main(int argc, char **argv)
             }
     }
 
-    return err;
+    if (err)
+        printf("Error: %d.\n", err);
+
+    return !!err;
 }

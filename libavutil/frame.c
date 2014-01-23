@@ -93,7 +93,7 @@ static int get_video_buffer(AVFrame *frame, int align)
 
         frame->data[i] = frame->buf[i]->data;
     }
-    if (desc->flags & PIX_FMT_PAL || desc->flags & PIX_FMT_PSEUDOPAL) {
+    if (desc->flags & AV_PIX_FMT_FLAG_PAL || desc->flags & AV_PIX_FMT_FLAG_PSEUDOPAL) {
         av_buffer_unref(&frame->buf[1]);
         frame->buf[1] = av_buffer_alloc(1024);
         if (!frame->buf[1])
@@ -171,7 +171,7 @@ int av_frame_get_buffer(AVFrame *frame, int align)
     return AVERROR(EINVAL);
 }
 
-int av_frame_ref(AVFrame *dst, AVFrame *src)
+int av_frame_ref(AVFrame *dst, const AVFrame *src)
 {
     int i, ret = 0;
 
@@ -257,7 +257,7 @@ fail:
     return ret;
 }
 
-AVFrame *av_frame_clone(AVFrame *src)
+AVFrame *av_frame_clone(const AVFrame *src)
 {
     AVFrame *ret = av_frame_alloc();
 
@@ -363,22 +363,23 @@ int av_frame_copy_props(AVFrame *dst, const AVFrame *src)
 {
     int i;
 
-    dst->key_frame           = src->key_frame;
-    dst->pict_type           = src->pict_type;
-    dst->sample_aspect_ratio = src->sample_aspect_ratio;
-    dst->pts                 = src->pts;
-    dst->repeat_pict         = src->repeat_pict;
-    dst->interlaced_frame    = src->interlaced_frame;
-    dst->top_field_first     = src->top_field_first;
-    dst->palette_has_changed = src->palette_has_changed;
-    dst->sample_rate         = src->sample_rate;
-    dst->opaque              = src->opaque;
-    dst->pkt_pts             = src->pkt_pts;
-    dst->pkt_dts             = src->pkt_dts;
-    dst->reordered_opaque    = src->reordered_opaque;
-    dst->quality             = src->quality;
-    dst->coded_picture_number = src->coded_picture_number;
+    dst->key_frame              = src->key_frame;
+    dst->pict_type              = src->pict_type;
+    dst->sample_aspect_ratio    = src->sample_aspect_ratio;
+    dst->pts                    = src->pts;
+    dst->repeat_pict            = src->repeat_pict;
+    dst->interlaced_frame       = src->interlaced_frame;
+    dst->top_field_first        = src->top_field_first;
+    dst->palette_has_changed    = src->palette_has_changed;
+    dst->sample_rate            = src->sample_rate;
+    dst->opaque                 = src->opaque;
+    dst->pkt_pts                = src->pkt_pts;
+    dst->pkt_dts                = src->pkt_dts;
+    dst->reordered_opaque       = src->reordered_opaque;
+    dst->quality                = src->quality;
+    dst->coded_picture_number   = src->coded_picture_number;
     dst->display_picture_number = src->display_picture_number;
+    dst->flags                  = src->flags;
 
     memcpy(dst->error, src->error, sizeof(dst->error));
 
@@ -465,7 +466,7 @@ AVFrameSideData *av_frame_new_side_data(AVFrame *frame,
     return ret;
 }
 
-AVFrameSideData *av_frame_get_side_data(AVFrame *frame,
+AVFrameSideData *av_frame_get_side_data(const AVFrame *frame,
                                         enum AVFrameSideDataType type)
 {
     int i;

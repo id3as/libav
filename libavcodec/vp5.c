@@ -28,6 +28,7 @@
 
 #include "avcodec.h"
 #include "get_bits.h"
+#include "internal.h"
 
 #include "vp56.h"
 #include "vp56data.h"
@@ -67,7 +68,9 @@ static int vp5_parse_header(VP56Context *s, const uint8_t *buf, int buf_size,
         if (!s->macroblocks || /* first frame */
             16*cols != s->avctx->coded_width ||
             16*rows != s->avctx->coded_height) {
-            avcodec_set_dimensions(s->avctx, 16*cols, 16*rows);
+            int ret = ff_set_dimensions(s->avctx, 16 * cols, 16 * rows);
+            if (ret < 0)
+                return ret;
             return VP56_SIZE_CHANGE;
         }
     } else if (!s->macroblocks)
@@ -173,7 +176,7 @@ static void vp5_parse_coeff(VP56Context *s)
 {
     VP56RangeCoder *c = &s->c;
     VP56Model *model = s->modelp;
-    uint8_t *permute = s->scantable.permutated;
+    uint8_t *permute = s->idct_scantable;
     uint8_t *model1, *model2;
     int coeff, sign, coeff_idx;
     int b, i, cg, idx, ctx, ctx_last;
@@ -281,6 +284,7 @@ static av_cold int vp5_decode_init(AVCodecContext *avctx)
 
 AVCodec ff_vp5_decoder = {
     .name           = "vp5",
+    .long_name      = NULL_IF_CONFIG_SMALL("On2 VP5"),
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_VP5,
     .priv_data_size = sizeof(VP56Context),
@@ -288,5 +292,4 @@ AVCodec ff_vp5_decoder = {
     .close          = ff_vp56_free,
     .decode         = ff_vp56_decode_frame,
     .capabilities   = CODEC_CAP_DR1,
-    .long_name      = NULL_IF_CONFIG_SMALL("On2 VP5"),
 };

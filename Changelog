@@ -7,9 +7,54 @@ version 10:
 - reference-counting for AVFrame and AVPacket data
 - avconv now fails when input options are used for output file
   or vice versa
-- new avconv options -filter_script and -filter_complex_script, which allow a
+- avconv options -filter_script and -filter_complex_script, which allow a
   filtergraph description to be read from a file
 - uniform options syntax across all filters
+- interlace filter
+- JPEG 2000 decoder
+- asetpts filter (same as setpts, but for audio)
+- trim and atrim filters
+- avconv -t and -ss (output-only) options are now sample-accurate when
+  transcoding audio
+- Matroska muxer can now put the index at the beginning of the file.
+- avconv -deinterlace option removed, the yadif filter should be used instead
+- Apple Intermediate Codec decoder
+- Escape 130 video decoder
+- support for slice multithreading in libavfilter
+- VC-1 interlaced B-frame support
+- support for WavPack muxing (raw and in Matroska)
+- Go2Webinar decoder
+- WavPack encoding through libwavpack
+- Added the -n parameter to avconv
+- RTMP seek support
+- when transcoding with avconv (i.e. not streamcopying), -ss is now accurate
+  even when used as an input option. Previous behavior can be restored with
+  the -noaccurate_seek option.
+- avconv -t option can now be used for inputs, to limit the duration of
+  data read from an input file
+- Voxware MetaSound decoder
+- WebP decoder
+- Error Resilient AAC syntax (ER AAC LC) decoding
+- Low Delay AAC (ER AAC LD) decoding
+- mux chapters in ASF files
+- Opus in Ogg demuxing
+- Enhanced Low Delay AAC (ER AAC ELD) decoding (no LD SBR support)
+- F4V muxer
+- HNM version 4 demuxer and video decoder
+- HEVC decoder
+- raw HEVC, HEVC in MOV/MP4, HEVC in Matroska, HEVC in MPEG-TS demuxing
+- remove avplay -vismv option, which has not worked for a long time
+- Live HDS muxer
+- setsar/setdar filters now support variables in ratio expressions
+- dar variable in the scale filter now returns the actual DAR (i.e. a * sar)
+- VP9 decoder
+- support for decoding through VDPAU in avconv (the -hwaccel option)
+- remove mp3_header_(de)compress bitstream filters
+- stereoscopic 3d metadata handling
+- png standalone parser
+- WebP encoding via libwebp
+- ATRAC3+ decoder
+- framepack filter
 
 
 version 9:
@@ -364,7 +409,7 @@ version 0.6:
 - LPCM support in MPEG-TS (HDMV RID as found on Blu-ray disks)
 - WMA Pro decoder
 - Core Audio Format demuxer
-- Atrac1 decoder
+- ATRAC1 decoder
 - MD STUDIO audio demuxer
 - RF64 support in WAV demuxer
 - MPEG-4 Audio Lossless Coding (ALS) decoder
@@ -464,7 +509,7 @@ version 0.5:
 - MXF demuxer
 - VC-1/WMV3/WMV9 video decoder
 - MacIntel support
-- AVISynth support
+- AviSynth support
 - VMware video decoder
 - VP5 video decoder
 - VP6 video decoder
@@ -492,7 +537,7 @@ version 0.5:
 - Interplay C93 demuxer and video decoder
 - Bethsoft VID demuxer and video decoder
 - CRYO APC demuxer
-- Atrac3 decoder
+- ATRAC3 decoder
 - V.Flash PTX decoder
 - RoQ muxer, RoQ audio encoder
 - Renderware TXD demuxer and decoder

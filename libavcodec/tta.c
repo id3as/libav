@@ -28,7 +28,6 @@
  */
 
 #define BITSTREAM_READER_LE
-//#define DEBUG
 #include <limits.h>
 #include "avcodec.h"
 #include "get_bits.h"
@@ -276,7 +275,8 @@ static av_cold int tta_decode_init(AVCodecContext * avctx)
             avctx->extradata_size - 26 < total_frames * 4)
             av_log(avctx, AV_LOG_WARNING, "Seek table missing or too small\n");
         else if (avctx->err_recognition & AV_EF_CRCCHECK) {
-            if (tta_check_crc(s, avctx->extradata + 22, total_frames * 4))
+            int ret = tta_check_crc(s, avctx->extradata + 22, total_frames * 4);
+            if (ret < 0 && avctx->err_recognition & AV_EF_EXPLODE)
                 return AVERROR_INVALIDDATA;
         }
         skip_bits_long(&s->gb, 32 * total_frames);
@@ -317,7 +317,8 @@ static int tta_decode_frame(AVCodecContext *avctx, void *data,
     int32_t *p;
 
     if (avctx->err_recognition & AV_EF_CRCCHECK) {
-        if (buf_size < 4 || tta_check_crc(s, buf, buf_size - 4))
+        if (buf_size < 4 ||
+            (tta_check_crc(s, buf, buf_size - 4) && avctx->err_recognition & AV_EF_EXPLODE))
             return AVERROR_INVALIDDATA;
     }
 
@@ -469,6 +470,7 @@ static av_cold int tta_decode_close(AVCodecContext *avctx) {
 
 AVCodec ff_tta_decoder = {
     .name           = "tta",
+    .long_name      = NULL_IF_CONFIG_SMALL("TTA (True Audio)"),
     .type           = AVMEDIA_TYPE_AUDIO,
     .id             = AV_CODEC_ID_TTA,
     .priv_data_size = sizeof(TTAContext),
@@ -476,5 +478,4 @@ AVCodec ff_tta_decoder = {
     .close          = tta_decode_close,
     .decode         = tta_decode_frame,
     .capabilities   = CODEC_CAP_DR1,
-    .long_name      = NULL_IF_CONFIG_SMALL("TTA (True Audio)"),
 };

@@ -58,8 +58,8 @@ static int concatenate_packet(unsigned int* offset,
                               const ogg_packet* packet)
 {
     const char* message = NULL;
-    uint8_t* newdata    = NULL;
     int newsize = avc_context->extradata_size + 2 + packet->bytes;
+    int err = AVERROR_INVALIDDATA;
 
     if (packet->bytes < 0) {
         message = "ogg_packet has negative size";
@@ -68,16 +68,16 @@ static int concatenate_packet(unsigned int* offset,
     } else if (newsize < avc_context->extradata_size) {
         message = "extradata_size would overflow";
     } else {
-        newdata = av_realloc(avc_context->extradata, newsize);
-        if (!newdata)
+        if ((err = av_reallocp(&avc_context->extradata, newsize)) < 0) {
+            avc_context->extradata_size = 0;
             message = "av_realloc failed";
+        }
     }
     if (message) {
         av_log(avc_context, AV_LOG_ERROR, "concatenate_packet failed: %s\n", message);
-        return -1;
+        return err;
     }
 
-    avc_context->extradata      = newdata;
     avc_context->extradata_size = newsize;
     AV_WB16(avc_context->extradata + (*offset), packet->bytes);
     *offset += 2;
@@ -259,7 +259,7 @@ static av_cold int encode_init(AVCodecContext* avc_context)
     th_comment_clear(&t_comment);
 
     /* Set up the output AVFrame */
-    avc_context->coded_frame= avcodec_alloc_frame();
+    avc_context->coded_frame = av_frame_alloc();
 
     return 0;
 }
@@ -365,6 +365,7 @@ static av_cold int encode_close(AVCodecContext* avc_context)
 /** AVCodec struct exposed to libavcodec */
 AVCodec ff_libtheora_encoder = {
     .name           = "libtheora",
+    .long_name      = NULL_IF_CONFIG_SMALL("libtheora Theora"),
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_THEORA,
     .priv_data_size = sizeof(TheoraContext),
@@ -375,5 +376,4 @@ AVCodec ff_libtheora_encoder = {
     .pix_fmts       = (const enum AVPixelFormat[]){
         AV_PIX_FMT_YUV420P, AV_PIX_FMT_YUV422P, AV_PIX_FMT_YUV444P, AV_PIX_FMT_NONE
     },
-    .long_name      = NULL_IF_CONFIG_SMALL("libtheora Theora"),
 };

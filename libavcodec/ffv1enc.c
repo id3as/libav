@@ -25,6 +25,7 @@
  * FF Video Codec 1 (a lossless codec) encoder
  */
 
+#include "libavutil/attributes.h"
 #include "libavutil/avassert.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/crc.h"
@@ -544,7 +545,7 @@ static int sort_stt(FFV1Context *s, uint8_t stt[256])
     return print;
 }
 
-static int init_slices_state(FFV1Context *f)
+static av_cold int init_slices_state(FFV1Context *f)
 {
     int i, ret;
     for (i = 0; i < f->slice_count; i++) {
@@ -720,7 +721,12 @@ static av_cold int ffv1_encode_init(AVCodecContext *avctx)
     if ((ret = ffv1_allocate_initial_states(s)) < 0)
         return ret;
 
-    avctx->coded_frame = &s->picture;
+    avctx->coded_frame = av_frame_alloc();
+    if (!avctx->coded_frame)
+        return AVERROR(ENOMEM);
+
+    avctx->coded_frame->pict_type = AV_PICTURE_TYPE_I;
+
     if (!s->transparency)
         s->plane_count = 2;
 
@@ -857,12 +863,12 @@ static void encode_slice_header(FFV1Context *f, FFV1Context *fs)
         put_symbol(c, state, f->plane[j].quant_table_index, 0);
         av_assert0(f->plane[j].quant_table_index == f->avctx->context_model);
     }
-    if (!f->picture.interlaced_frame)
+    if (!f->avctx->coded_frame->interlaced_frame)
         put_symbol(c, state, 3, 0);
     else
-        put_symbol(c, state, 1 + !f->picture.top_field_first, 0);
-    put_symbol(c, state, f->picture.sample_aspect_ratio.num, 0);
-    put_symbol(c, state, f->picture.sample_aspect_ratio.den, 0);
+        put_symbol(c, state, 1 + !f->avctx->coded_frame->top_field_first, 0);
+    put_symbol(c, state, f->avctx->coded_frame->sample_aspect_ratio.num, 0);
+    put_symbol(c, state, f->avctx->coded_frame->sample_aspect_ratio.den, 0);
 }
 
 static int encode_slice(AVCodecContext *c, void *arg)
@@ -873,12 +879,12 @@ static int encode_slice(AVCodecContext *c, void *arg)
     int height       = fs->slice_height;
     int x            = fs->slice_x;
     int y            = fs->slice_y;
-    AVFrame *const p = &f->picture;
-    const int ps     = (av_pix_fmt_desc_get(c->pix_fmt)->flags & PIX_FMT_PLANAR)
+    const AVFrame *const p = f->frame;
+    const int ps     = (av_pix_fmt_desc_get(c->pix_fmt)->flags & AV_PIX_FMT_FLAG_PLANAR)
                        ? (f->bits_per_raw_sample > 8) + 1
                        : 4;
 
-    if (p->key_frame)
+    if (c->coded_frame->key_frame)
         ffv1_clear_slice_state(f, fs);
     if (f->version > 2) {
         encode_slice_header(f, fs);
@@ -925,11 +931,13 @@ static int ffv1_encode_frame(AVCodecContext *avctx, AVPacket *pkt,
 {
     FFV1Context *f      = avctx->priv_data;
     RangeCoder *const c = &f->slice_context[0]->c;
-    AVFrame *const p    = &f->picture;
+    AVFrame *const p    = avctx->coded_frame;
     int used_count      = 0;
     uint8_t keystate    = 128;
     uint8_t *buf_p;
     int i, ret;
+
+    f->frame = pict;
 
     if ((ret = ff_alloc_packet(pkt, avctx->width * avctx->height *
                              ((8 * 2 + 1 + 1) * 4) / 8 +
@@ -940,9 +948,6 @@ static int ffv1_encode_frame(AVCodecContext *avctx, AVPacket *pkt,
 
     ff_init_range_encoder(c, pkt->data, pkt->size);
     ff_build_rac_states(c, 0.05 * (1LL << 32), 256 - 8);
-
-    *p           = *pict;
-    p->pict_type = AV_PICTURE_TYPE_I;
 
     if (avctx->gop_size == 0 || f->picture_number % avctx->gop_size == 0) {
         put_rac(c, &keystate, 1);
@@ -1053,6 +1058,13 @@ static int ffv1_encode_frame(AVCodecContext *avctx, AVPacket *pkt,
     return 0;
 }
 
+static av_cold int ffv1_encode_close(AVCodecContext *avctx)
+{
+    av_frame_free(&avctx->coded_frame);
+    ffv1_close(avctx);
+    return 0;
+}
+
 #define OFFSET(x) offsetof(FFV1Context, x)
 #define VE AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_ENCODING_PARAM
 static const AVOption options[] = {
@@ -1075,12 +1087,13 @@ static const AVCodecDefault ffv1_defaults[] = {
 
 AVCodec ff_ffv1_encoder = {
     .name           = "ffv1",
+    .long_name      = NULL_IF_CONFIG_SMALL("FFmpeg video codec #1"),
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_FFV1,
     .priv_data_size = sizeof(FFV1Context),
     .init           = ffv1_encode_init,
     .encode2        = ffv1_encode_frame,
-    .close          = ffv1_close,
+    .close          = ffv1_encode_close,
     .capabilities   = CODEC_CAP_SLICE_THREADS,
     .pix_fmts       = (const enum AVPixelFormat[]) {
         AV_PIX_FMT_YUV420P,   AV_PIX_FMT_YUV422P,   AV_PIX_FMT_YUV444P,
@@ -1095,7 +1108,6 @@ AVCodec ff_ffv1_encoder = {
         AV_PIX_FMT_NONE
 
     },
-    .long_name      = NULL_IF_CONFIG_SMALL("FFmpeg video codec #1"),
     .defaults       = ffv1_defaults,
     .priv_class     = &class,
 };

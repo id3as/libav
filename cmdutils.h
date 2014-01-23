@@ -45,6 +45,16 @@ extern struct SwsContext *sws_opts;
 extern AVDictionary *format_opts, *codec_opts, *resample_opts;
 
 /**
+ * Register a program-specific cleanup routine.
+ */
+void register_exit(void (*cb)(int ret));
+
+/**
+ * Wraps exit with a program-specific cleanup routine.
+ */
+void exit_program(int ret);
+
+/**
  * Initialize the cmdutils option system, in particular
  * allocate the *_opts contexts.
  */
@@ -60,6 +70,11 @@ void uninit_opts(void);
  * Only suitable for show_help and similar since it lacks prefix handling.
  */
 void log_callback_help(void* ptr, int level, const char* fmt, va_list vl);
+
+/**
+ * Override the cpuflags mask.
+ */
+int opt_cpuflags(void *optctx, const char *opt, const char *arg);
 
 /**
  * Fallback for options that are not explicitly handled, these will be
@@ -513,6 +528,11 @@ FILE *get_preset_file(char *filename, size_t filename_size,
  * @return reallocated array
  */
 void *grow_array(void *array, int elem_size, int *size, int new_size);
+
+/**
+ * Get a string describing a media type.
+ */
+const char *media_type_string(enum AVMediaType media_type);
 
 #define GROW_ARRAY(array, nb_elems)\
     array = grow_array(array, sizeof(*array), &nb_elems, nb_elems + 1)

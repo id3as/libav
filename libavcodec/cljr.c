@@ -88,26 +88,28 @@ static av_cold int decode_init(AVCodecContext *avctx)
 
 AVCodec ff_cljr_decoder = {
     .name           = "cljr",
+    .long_name      = NULL_IF_CONFIG_SMALL("Cirrus Logic AccuPak"),
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_CLJR,
     .init           = decode_init,
     .decode         = decode_frame,
     .capabilities   = CODEC_CAP_DR1,
-    .long_name      = NULL_IF_CONFIG_SMALL("Cirrus Logic AccuPak"),
 };
 #endif
 
 #if CONFIG_CLJR_ENCODER
-typedef struct CLJRContext {
-    AVFrame         picture;
-} CLJRContext;
-
 static av_cold int encode_init(AVCodecContext *avctx)
 {
-    CLJRContext * const a = avctx->priv_data;
+    avctx->coded_frame = av_frame_alloc();
+    if (!avctx->coded_frame)
+        return AVERROR(ENOMEM);
 
-    avctx->coded_frame = &a->picture;
+    return 0;
+}
 
+static av_cold int encode_close(AVCodecContext *avctx)
+{
+    av_frame_free(&avctx->coded_frame);
     return 0;
 }
 
@@ -152,13 +154,13 @@ static int encode_frame(AVCodecContext *avctx, AVPacket *pkt,
 
 AVCodec ff_cljr_encoder = {
     .name           = "cljr",
+    .long_name      = NULL_IF_CONFIG_SMALL("Cirrus Logic AccuPak"),
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_CLJR,
-    .priv_data_size = sizeof(CLJRContext),
     .init           = encode_init,
     .encode2        = encode_frame,
+    .close          = encode_close,
     .pix_fmts       = (const enum AVPixelFormat[]) { AV_PIX_FMT_YUV411P,
                                                    AV_PIX_FMT_NONE },
-    .long_name      = NULL_IF_CONFIG_SMALL("Cirrus Logic AccuPak"),
 };
 #endif

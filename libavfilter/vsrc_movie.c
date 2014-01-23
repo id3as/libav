@@ -28,9 +28,10 @@
  * @todo support more than one output stream
  */
 
-/* #define DEBUG */
-
 #include <float.h>
+#include <stdint.h>
+
+#include "libavutil/attributes.h"
 #include "libavutil/avstring.h"
 #include "libavutil/opt.h"
 #include "libavutil/imgutils.h"
@@ -81,7 +82,7 @@ static const AVClass movie_class = {
     movie_options
 };
 
-static int movie_init(AVFilterContext *ctx)
+static av_cold int movie_init(AVFilterContext *ctx)
 {
     MovieContext *movie = ctx->priv;
     AVInputFormat *iformat = NULL;
@@ -173,8 +174,6 @@ static av_cold void uninit(AVFilterContext *ctx)
 {
     MovieContext *movie = ctx->priv;
 
-    av_free(movie->file_name);
-    av_free(movie->format_name);
     if (movie->codec_ctx)
         avcodec_close(movie->codec_ctx);
     if (movie->format_ctx)
@@ -273,7 +272,7 @@ static const AVFilterPad avfilter_vsrc_movie_outputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_vsrc_movie = {
+AVFilter ff_vsrc_movie = {
     .name          = "movie",
     .description   = NULL_IF_CONFIG_SMALL("Read from a movie source."),
     .priv_size     = sizeof(MovieContext),

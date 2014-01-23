@@ -30,6 +30,7 @@
 #include "libavutil/fifo.h"
 #include "libavutil/frame.h"
 #include "libavutil/imgutils.h"
+#include "libavutil/internal.h"
 #include "libavutil/opt.h"
 #include "libavutil/samplefmt.h"
 #include "audio.h"
@@ -73,7 +74,7 @@ typedef struct {
         return AVERROR(EINVAL);\
     }
 
-int av_buffersrc_write_frame(AVFilterContext *ctx, const AVFrame *frame)
+int attribute_align_arg av_buffersrc_write_frame(AVFilterContext *ctx, const AVFrame *frame)
 {
     AVFrame *copy;
     int ret = 0;
@@ -88,17 +89,20 @@ int av_buffersrc_write_frame(AVFilterContext *ctx, const AVFrame *frame)
     return ret;
 }
 
-int av_buffersrc_add_frame(AVFilterContext *ctx, AVFrame *frame)
+int attribute_align_arg av_buffersrc_add_frame(AVFilterContext *ctx,
+                                               AVFrame *frame)
 {
     BufferSourceContext *s = ctx->priv;
     AVFrame *copy;
-    int ret;
+    int refcounted, ret;
 
     if (!frame) {
         s->eof = 1;
         return 0;
     } else if (s->eof)
         return AVERROR(EINVAL);
+
+    refcounted = !!frame->buf[0];
 
     switch (ctx->outputs[0]->type) {
     case AVMEDIA_TYPE_VIDEO:
@@ -120,10 +124,20 @@ int av_buffersrc_add_frame(AVFilterContext *ctx, AVFrame *frame)
 
     if (!(copy = av_frame_alloc()))
         return AVERROR(ENOMEM);
-    av_frame_move_ref(copy, frame);
+
+    if (refcounted) {
+        av_frame_move_ref(copy, frame);
+    } else {
+        ret = av_frame_ref(copy, frame);
+        if (ret < 0) {
+            av_frame_free(&copy);
+            return ret;
+        }
+    }
 
     if ((ret = av_fifo_generic_write(s->fifo, &copy, sizeof(copy), NULL)) < 0) {
-        av_frame_move_ref(frame, copy);
+        if (refcounted)
+            av_frame_move_ref(frame, copy);
         av_frame_free(&copy);
         return ret;
     }
@@ -132,6 +146,7 @@ int av_buffersrc_add_frame(AVFilterContext *ctx, AVFrame *frame)
 }
 
 #if FF_API_AVFILTERBUFFER
+FF_DISABLE_DEPRECATION_WARNINGS
 static void compat_free_buffer(void *opaque, uint8_t *data)
 {
     AVFilterBufferRef *buf = opaque;
@@ -234,6 +249,7 @@ fail:
 
     return ret;
 }
+FF_ENABLE_DEPRECATION_WARNINGS
 #endif
 
 static av_cold int init_video(AVFilterContext *ctx)
@@ -437,7 +453,7 @@ static const AVFilterPad avfilter_vsrc_buffer_outputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_vsrc_buffer = {
+AVFilter ff_vsrc_buffer = {
     .name      = "buffer",
     .description = NULL_IF_CONFIG_SMALL("Buffer video frames, and make them accessible to the filterchain."),
     .priv_size = sizeof(BufferSourceContext),
@@ -462,7 +478,7 @@ static const AVFilterPad avfilter_asrc_abuffer_outputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_asrc_abuffer = {
+AVFilter ff_asrc_abuffer = {
     .name          = "abuffer",
     .description   = NULL_IF_CONFIG_SMALL("Buffer audio frames, and make them accessible to the filterchain."),
     .priv_size     = sizeof(BufferSourceContext),

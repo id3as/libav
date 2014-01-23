@@ -21,11 +21,12 @@
 #include "avcodec.h"
 #include "get_bits.h"
 #include "dsputil.h"
+#include "internal.h"
+
+#include "libavutil/attributes.h"
 #include "libavutil/colorspace.h"
 #include "libavutil/imgutils.h"
 #include "libavutil/avstring.h"
-
-//#define DEBUG
 
 typedef struct DVDSubContext {
     uint32_t palette[16];
@@ -438,9 +439,6 @@ static int find_smallest_bounding_rectangle(AVSubtitle *s)
 }
 
 #ifdef DEBUG
-#undef fprintf
-#undef perror
-#undef exit
 static void ppm_save(const char *filename, uint8_t *bitmap, int w, int h,
                      uint32_t *rgba_palette)
 {
@@ -501,7 +499,7 @@ static int dvdsub_decode(AVCodecContext *avctx,
     return buf_size;
 }
 
-static int dvdsub_init(AVCodecContext *avctx)
+static av_cold int dvdsub_init(AVCodecContext *avctx)
 {
     DVDSubContext *ctx = avctx->priv_data;
     char *data, *cur;
@@ -528,9 +526,11 @@ static int dvdsub_init(AVCodecContext *avctx)
             }
         } else if (!strncmp("size:", cur, 5)) {
             int w, h;
-            if (sscanf(cur + 5, "%dx%d", &w, &h) == 2 &&
-                av_image_check_size(w, h, 0, avctx) >= 0)
-                avcodec_set_dimensions(avctx, w, h);
+            if (sscanf(cur + 5, "%dx%d", &w, &h) == 2) {
+               int ret = ff_set_dimensions(avctx, w, h);
+               if (ret < 0)
+                   return ret;
+            }
         }
         cur += strcspn(cur, "\n\r");
         cur += strspn(cur, "\n\r");
@@ -541,10 +541,10 @@ static int dvdsub_init(AVCodecContext *avctx)
 
 AVCodec ff_dvdsub_decoder = {
     .name           = "dvdsub",
+    .long_name      = NULL_IF_CONFIG_SMALL("DVD subtitles"),
     .type           = AVMEDIA_TYPE_SUBTITLE,
     .id             = AV_CODEC_ID_DVD_SUBTITLE,
     .priv_data_size = sizeof(DVDSubContext),
     .init           = dvdsub_init,
     .decode         = dvdsub_decode,
-    .long_name      = NULL_IF_CONFIG_SMALL("DVD subtitles"),
 };

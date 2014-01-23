@@ -45,7 +45,7 @@
  */
 typedef struct FrapsContext {
     AVCodecContext *avctx;
-    AVFrame frame;
+    AVFrame *frame;
     uint8_t *tmpbuf;
     int tmpbuf_size;
     DSPContext dsp;
@@ -66,7 +66,9 @@ static av_cold int decode_init(AVCodecContext *avctx)
     s->avctx  = avctx;
     s->tmpbuf = NULL;
 
-    avcodec_get_frame_defaults(&s->frame);
+    s->frame = av_frame_alloc();
+    if (!s->frame)
+        return AVERROR(ENOMEM);
 
     ff_dsputil_init(&s->dsp, avctx);
 
@@ -136,7 +138,7 @@ static int decode_frame(AVCodecContext *avctx,
     const uint8_t *buf     = avpkt->data;
     int buf_size           = avpkt->size;
     AVFrame *frame         = data;
-    AVFrame * const f      = &s->frame;
+    AVFrame * const f      = s->frame;
     uint32_t header;
     unsigned int version,header_size;
     unsigned int x, y;
@@ -145,10 +147,17 @@ static int decode_frame(AVCodecContext *avctx,
     uint32_t offs[4];
     int i, j, ret, is_chroma, planes;
     enum AVPixelFormat pix_fmt;
+    int prev_pic_bit, expected_size;
+
+    if (buf_size < 4) {
+        av_log(avctx, AV_LOG_ERROR, "Packet is too short\n");
+        return AVERROR_INVALIDDATA;
+    }
 
     header      = AV_RL32(buf);
     version     = header & 0xff;
     header_size = (header & (1<<30))? 8 : 4; /* bit 30 means pad to 8 bytes */
+    prev_pic_bit = header & (1U << 31); /* bit 31 means same as previous pic */
 
     if (version > 5) {
         av_log(avctx, AV_LOG_ERROR,
@@ -167,16 +176,18 @@ static int decode_frame(AVCodecContext *avctx,
     }
     avctx->pix_fmt = pix_fmt;
 
+    expected_size = header_size;
+
     switch (version) {
     case 0:
     default:
         /* Fraps v0 is a reordered YUV420 */
-        if ((buf_size != avctx->width * avctx->height * 3 / 2 + header_size) &&
-            (buf_size != header_size)) {
+        if (!prev_pic_bit)
+            expected_size += avctx->width * avctx->height * 3 / 2;
+        if (buf_size != expected_size) {
             av_log(avctx, AV_LOG_ERROR,
                    "Invalid frame length %d (should be %d)\n",
-                   buf_size,
-                   avctx->width * avctx->height * 3 / 2 + header_size);
+                   buf_size, expected_size);
             return AVERROR_INVALIDDATA;
         }
 
@@ -190,8 +201,7 @@ static int decode_frame(AVCodecContext *avctx,
             av_log(avctx, AV_LOG_ERROR, "reget_buffer() failed\n");
             return ret;
         }
-        /* bit 31 means same as previous pic */
-        f->pict_type = (header & (1U << 31)) ? AV_PICTURE_TYPE_P : AV_PICTURE_TYPE_I;
+        f->pict_type = prev_pic_bit ? AV_PICTURE_TYPE_P : AV_PICTURE_TYPE_I;
         f->key_frame = f->pict_type == AV_PICTURE_TYPE_I;
 
         if (f->pict_type == AV_PICTURE_TYPE_I) {
@@ -215,11 +225,12 @@ static int decode_frame(AVCodecContext *avctx,
 
     case 1:
         /* Fraps v1 is an upside-down BGR24 */
-        if ((buf_size != avctx->width * avctx->height * 3 + header_size) &&
-            (buf_size != header_size) ) {
+        if (!prev_pic_bit)
+            expected_size += avctx->width * avctx->height * 3;
+        if (buf_size != expected_size) {
             av_log(avctx, AV_LOG_ERROR,
                    "Invalid frame length %d (should be %d)\n",
-                   buf_size, avctx->width * avctx->height * 3 + header_size);
+                   buf_size, expected_size);
             return AVERROR_INVALIDDATA;
         }
 
@@ -227,8 +238,7 @@ static int decode_frame(AVCodecContext *avctx,
             av_log(avctx, AV_LOG_ERROR, "reget_buffer() failed\n");
             return ret;
         }
-        /* bit 31 means same as previous pic */
-        f->pict_type = (header & (1U<<31))? AV_PICTURE_TYPE_P : AV_PICTURE_TYPE_I;
+        f->pict_type = prev_pic_bit ? AV_PICTURE_TYPE_P : AV_PICTURE_TYPE_I;
         f->key_frame = f->pict_type == AV_PICTURE_TYPE_I;
 
         if (f->pict_type == AV_PICTURE_TYPE_I) {
@@ -353,7 +363,7 @@ static av_cold int decode_end(AVCodecContext *avctx)
 {
     FrapsContext *s = (FrapsContext*)avctx->priv_data;
 
-    av_frame_unref(&s->frame);
+    av_frame_free(&s->frame);
 
     av_freep(&s->tmpbuf);
     return 0;
@@ -362,6 +372,7 @@ static av_cold int decode_end(AVCodecContext *avctx)
 
 AVCodec ff_fraps_decoder = {
     .name           = "fraps",
+    .long_name      = NULL_IF_CONFIG_SMALL("Fraps"),
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_FRAPS,
     .priv_data_size = sizeof(FrapsContext),
@@ -369,5 +380,4 @@ AVCodec ff_fraps_decoder = {
     .close          = decode_end,
     .decode         = decode_frame,
     .capabilities   = CODEC_CAP_DR1,
-    .long_name      = NULL_IF_CONFIG_SMALL("Fraps"),
 };

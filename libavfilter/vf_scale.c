@@ -122,7 +122,8 @@ static int query_formats(AVFilterContext *ctx)
     if (ctx->inputs[0]) {
         formats = NULL;
         for (pix_fmt = 0; pix_fmt < AV_PIX_FMT_NB; pix_fmt++)
-            if (   sws_isSupportedInput(pix_fmt)
+            if ((sws_isSupportedInput(pix_fmt) ||
+                 sws_isSupportedEndiannessConversion(pix_fmt))
                 && (ret = ff_add_format(&formats, pix_fmt)) < 0) {
                 ff_formats_unref(&formats);
                 return ret;
@@ -132,7 +133,8 @@ static int query_formats(AVFilterContext *ctx)
     if (ctx->outputs[0]) {
         formats = NULL;
         for (pix_fmt = 0; pix_fmt < AV_PIX_FMT_NB; pix_fmt++)
-            if (    sws_isSupportedOutput(pix_fmt)
+            if ((sws_isSupportedOutput(pix_fmt) ||
+                 sws_isSupportedEndiannessConversion(pix_fmt))
                 && (ret = ff_add_format(&formats, pix_fmt)) < 0) {
                 ff_formats_unref(&formats);
                 return ret;
@@ -161,9 +163,10 @@ static int config_props(AVFilterLink *outlink)
     var_values[VAR_IN_H]  = var_values[VAR_IH] = inlink->h;
     var_values[VAR_OUT_W] = var_values[VAR_OW] = NAN;
     var_values[VAR_OUT_H] = var_values[VAR_OH] = NAN;
-    var_values[VAR_DAR]   = var_values[VAR_A]  = (double) inlink->w / inlink->h;
+    var_values[VAR_A]     = (double) inlink->w / inlink->h;
     var_values[VAR_SAR]   = inlink->sample_aspect_ratio.num ?
         (double) inlink->sample_aspect_ratio.num / inlink->sample_aspect_ratio.den : 1;
+    var_values[VAR_DAR]   = var_values[VAR_A] * var_values[VAR_SAR];
     var_values[VAR_HSUB]  = 1 << desc->log2_chroma_w;
     var_values[VAR_VSUB]  = 1 << desc->log2_chroma_h;
 
@@ -218,8 +221,8 @@ static int config_props(AVFilterLink *outlink)
            outlink->w, outlink->h, av_get_pix_fmt_name(outlink->format),
            scale->flags);
 
-    scale->input_is_pal = desc->flags & PIX_FMT_PAL ||
-                          desc->flags & PIX_FMT_PSEUDOPAL;
+    scale->input_is_pal = desc->flags & AV_PIX_FMT_FLAG_PAL ||
+                          desc->flags & AV_PIX_FMT_FLAG_PSEUDOPAL;
 
     if (scale->sws)
         sws_freeContext(scale->sws);
@@ -319,7 +322,7 @@ static const AVFilterPad avfilter_vf_scale_outputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_vf_scale = {
+AVFilter ff_vf_scale = {
     .name      = "scale",
     .description = NULL_IF_CONFIG_SMALL("Scale the input video to width:height size and/or convert the image format."),
 

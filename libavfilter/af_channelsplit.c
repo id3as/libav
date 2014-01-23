@@ -23,6 +23,7 @@
  * Split an audio stream into per-channel streams.
  */
 
+#include "libavutil/attributes.h"
 #include "libavutil/channel_layout.h"
 #include "libavutil/internal.h"
 #include "libavutil/opt.h"
@@ -53,7 +54,7 @@ static const AVClass channelsplit_class = {
     .version    = LIBAVUTIL_VERSION_INT,
 };
 
-static int init(AVFilterContext *ctx)
+static av_cold int init(AVFilterContext *ctx)
 {
     ChannelSplitContext *s = ctx->priv;
     int nb_channels;
@@ -138,7 +139,7 @@ static const AVFilterPad avfilter_af_channelsplit_inputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_af_channelsplit = {
+AVFilter ff_af_channelsplit = {
     .name           = "channelsplit",
     .description    = NULL_IF_CONFIG_SMALL("Split audio into per-channel streams"),
     .priv_size      = sizeof(ChannelSplitContext),
@@ -149,4 +150,6 @@ AVFilter avfilter_af_channelsplit = {
 
     .inputs  = avfilter_af_channelsplit_inputs,
     .outputs = NULL,
+
+    .flags   = AVFILTER_FLAG_DYNAMIC_OUTPUTS,
 };

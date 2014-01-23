@@ -35,7 +35,7 @@ static const AVCodecTag flv_video_codec_ids[] = {
     { AV_CODEC_ID_FLASHSV,  FLV_CODECID_SCREEN },
     { AV_CODEC_ID_FLASHSV2, FLV_CODECID_SCREEN2 },
     { AV_CODEC_ID_VP6F,     FLV_CODECID_VP6 },
-    { AV_CODEC_ID_VP6,      FLV_CODECID_VP6 },
+    { AV_CODEC_ID_VP6A,     FLV_CODECID_VP6A },
     { AV_CODEC_ID_H264,     FLV_CODECID_H264 },
     { AV_CODEC_ID_NONE,     0 }
 };
@@ -208,6 +208,11 @@ static int flv_write_header(AVFormatContext *s)
             } else {
                 framerate = 1 / av_q2d(s->streams[i]->codec->time_base);
             }
+            if (video_enc) {
+                av_log(s, AV_LOG_ERROR,
+                       "at most one video stream is supported in flv\n");
+                return AVERROR(EINVAL);
+            }
             video_enc = enc;
             if (enc->codec_tag == 0) {
                 av_log(s, AV_LOG_ERROR, "video codec not compatible with flv\n");
@@ -215,6 +220,11 @@ static int flv_write_header(AVFormatContext *s)
             }
             break;
         case AVMEDIA_TYPE_AUDIO:
+            if (audio_enc) {
+                av_log(s, AV_LOG_ERROR,
+                       "at most one audio stream is supported in flv\n");
+                return AVERROR(EINVAL);
+            }
             audio_enc = enc;
             if (get_audio_flags(s, enc) < 0)
                 return AVERROR_INVALIDDATA;
@@ -427,7 +437,7 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
     uint8_t *data = NULL;
     int flags = 0, flags_size;
 
-    if (enc->codec_id == AV_CODEC_ID_VP6 || enc->codec_id == AV_CODEC_ID_VP6F ||
+    if (enc->codec_id == AV_CODEC_ID_VP6F || enc->codec_id == AV_CODEC_ID_VP6A ||
         enc->codec_id == AV_CODEC_ID_AAC)
         flags_size = 2;
     else if (enc->codec_id == AV_CODEC_ID_H264)
@@ -496,7 +506,7 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
 
     if (enc->codec_type == AVMEDIA_TYPE_DATA) {
         int data_size;
-        int metadata_size_pos = avio_tell(pb);
+        int64_t metadata_size_pos = avio_tell(pb);
         avio_w8(pb, AMF_DATA_TYPE_STRING);
         put_amf_string(pb, "onTextData");
         avio_w8(pb, AMF_DATA_TYPE_MIXEDARRAY);
@@ -517,11 +527,13 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
         avio_wb32(pb, data_size + 11);
     } else {
         avio_w8(pb,flags);
-        if (enc->codec_id == AV_CODEC_ID_VP6)
-            avio_w8(pb, 0);
-        if (enc->codec_id == AV_CODEC_ID_VP6F)
-            avio_w8(pb, enc->extradata_size ? enc->extradata[0] : 0);
-        else if (enc->codec_id == AV_CODEC_ID_AAC)
+        if (enc->codec_id == AV_CODEC_ID_VP6F || enc->codec_id == AV_CODEC_ID_VP6A) {
+            if (enc->extradata_size)
+                avio_w8(pb, enc->extradata[0]);
+            else
+                avio_w8(pb, ((FFALIGN(enc->width,  16) - enc->width) << 4) |
+                             (FFALIGN(enc->height, 16) - enc->height));
+        } else if (enc->codec_id == AV_CODEC_ID_AAC)
             avio_w8(pb, 1); // AAC raw
         else if (enc->codec_id == AV_CODEC_ID_H264) {
             avio_w8(pb, 1); // AVC NALU
@@ -535,7 +547,6 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
                               pkt->pts + flv->delay + pkt->duration);
     }
 
-    avio_flush(pb);
     av_free(data);
 
     return pb->error;

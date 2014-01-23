@@ -119,9 +119,7 @@ static av_cold int shorten_decode_init(AVCodecContext *avctx)
 
 static int allocate_buffers(ShortenContext *s)
 {
-    int i, chan;
-    int *coeffs;
-    void *tmp_ptr;
+    int i, chan, err;
 
     for (chan = 0; chan < s->channels; chan++) {
         if (FFMAX(1, s->nmean) >= UINT_MAX / sizeof(int32_t)) {
@@ -135,26 +133,21 @@ static int allocate_buffers(ShortenContext *s)
             return AVERROR_INVALIDDATA;
         }
 
-        tmp_ptr =
-            av_realloc(s->offset[chan], sizeof(int32_t) * FFMAX(1, s->nmean));
-        if (!tmp_ptr)
-            return AVERROR(ENOMEM);
-        s->offset[chan] = tmp_ptr;
+        if ((err = av_reallocp(&s->offset[chan],
+                               sizeof(int32_t) *
+                               FFMAX(1, s->nmean))) < 0)
+            return err;
 
-        tmp_ptr = av_realloc(s->decoded_base[chan], (s->blocksize + s->nwrap) *
-                             sizeof(s->decoded_base[0][0]));
-        if (!tmp_ptr)
-            return AVERROR(ENOMEM);
-        s->decoded_base[chan] = tmp_ptr;
+        if ((err = av_reallocp(&s->decoded_base[chan], (s->blocksize + s->nwrap) *
+                               sizeof(s->decoded_base[0][0]))) < 0)
+            return err;
         for (i = 0; i < s->nwrap; i++)
             s->decoded_base[chan][i] = 0;
         s->decoded[chan] = s->decoded_base[chan] + s->nwrap;
     }
 
-    coeffs = av_realloc(s->coeffs, s->nwrap * sizeof(*s->coeffs));
-    if (!coeffs)
-        return AVERROR(ENOMEM);
-    s->coeffs = coeffs;
+    if ((err = av_reallocp(&s->coeffs, s->nwrap * sizeof(*s->coeffs))) < 0)
+        return err;
 
     return 0;
 }
@@ -202,31 +195,38 @@ static int decode_wave_header(AVCodecContext *avctx, const uint8_t *header,
 {
     int len;
     short wave_format;
+    GetByteContext gb;
 
-    if (bytestream_get_le32(&header) != MKTAG('R', 'I', 'F', 'F')) {
+    bytestream2_init(&gb, header, header_size);
+
+    if (bytestream2_get_le32(&gb) != MKTAG('R', 'I', 'F', 'F')) {
         av_log(avctx, AV_LOG_ERROR, "missing RIFF tag\n");
         return AVERROR_INVALIDDATA;
     }
 
-    header += 4; /* chunk size */
+    bytestream2_skip(&gb, 4); /* chunk size */
 
-    if (bytestream_get_le32(&header) != MKTAG('W', 'A', 'V', 'E')) {
+    if (bytestream2_get_le32(&gb) != MKTAG('W', 'A', 'V', 'E')) {
         av_log(avctx, AV_LOG_ERROR, "missing WAVE tag\n");
         return AVERROR_INVALIDDATA;
     }
 
-    while (bytestream_get_le32(&header) != MKTAG('f', 'm', 't', ' ')) {
-        len     = bytestream_get_le32(&header);
-        header += len;
+    while (bytestream2_get_le32(&gb) != MKTAG('f', 'm', 't', ' ')) {
+        len = bytestream2_get_le32(&gb);
+        bytestream2_skip(&gb, len);
+        if (bytestream2_get_bytes_left(&gb) < 16) {
+            av_log(avctx, AV_LOG_ERROR, "no fmt chunk found\n");
+            return AVERROR_INVALIDDATA;
+        }
     }
-    len = bytestream_get_le32(&header);
+    len = bytestream2_get_le32(&gb);
 
     if (len < 16) {
         av_log(avctx, AV_LOG_ERROR, "fmt chunk was too short\n");
         return AVERROR_INVALIDDATA;
     }
 
-    wave_format = bytestream_get_le16(&header);
+    wave_format = bytestream2_get_le16(&gb);
 
     switch (wave_format) {
     case WAVE_FORMAT_PCM:
@@ -236,11 +236,11 @@ static int decode_wave_header(AVCodecContext *avctx, const uint8_t *header,
         return AVERROR(ENOSYS);
     }
 
-    header += 2;        // skip channels    (already got from shorten header)
-    avctx->sample_rate = bytestream_get_le32(&header);
-    header += 4;        // skip bit rate    (represents original uncompressed bit rate)
-    header += 2;        // skip block align (not needed)
-    avctx->bits_per_coded_sample = bytestream_get_le16(&header);
+    bytestream2_skip(&gb, 2); // skip channels    (already got from shorten header)
+    avctx->sample_rate = bytestream2_get_le32(&gb);
+    bytestream2_skip(&gb, 4); // skip bit rate    (represents original uncompressed bit rate)
+    bytestream2_skip(&gb, 2); // skip block align (not needed)
+    avctx->bits_per_coded_sample = bytestream2_get_le16(&gb);
 
     if (avctx->bits_per_coded_sample != 16) {
         av_log(avctx, AV_LOG_ERROR, "unsupported number of bits per sample\n");
@@ -266,7 +266,8 @@ static void output_buffer(int16_t **samples, int nchan, int blocksize,
     }
 }
 
-static const int fixed_coeffs[3][3] = {
+static const int fixed_coeffs[][3] = {
+    { 0,  0,  0 },
     { 1,  0,  0 },
     { 2, -1,  0 },
     { 3, -3,  1 }
@@ -295,7 +296,12 @@ static int decode_subframe_lpc(ShortenContext *s, int command, int channel,
     } else {
         /* fixed LPC coeffs */
         pred_order = command;
-        coeffs     = fixed_coeffs[pred_order - 1];
+        if (pred_order >= FF_ARRAY_ELEMS(fixed_coeffs)) {
+            av_log(s->avctx, AV_LOG_ERROR, "invalid pred_order %d\n",
+                   pred_order);
+            return AVERROR_INVALIDDATA;
+        }
+        coeffs     = fixed_coeffs[pred_order];
         qshift     = 0;
     }
 
@@ -643,6 +649,7 @@ static av_cold int shorten_decode_close(AVCodecContext *avctx)
 
 AVCodec ff_shorten_decoder = {
     .name           = "shorten",
+    .long_name      = NULL_IF_CONFIG_SMALL("Shorten"),
     .type           = AVMEDIA_TYPE_AUDIO,
     .id             = AV_CODEC_ID_SHORTEN,
     .priv_data_size = sizeof(ShortenContext),
@@ -650,7 +657,6 @@ AVCodec ff_shorten_decoder = {
     .close          = shorten_decode_close,
     .decode         = shorten_decode_frame,
     .capabilities   = CODEC_CAP_DELAY | CODEC_CAP_DR1,
-    .long_name      = NULL_IF_CONFIG_SMALL("Shorten"),
     .sample_fmts    = (const enum AVSampleFormat[]) { AV_SAMPLE_FMT_S16P,
                                                       AV_SAMPLE_FMT_NONE },
 };

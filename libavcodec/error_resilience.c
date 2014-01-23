@@ -27,11 +27,13 @@
 
 #include <limits.h>
 
+#include "libavutil/internal.h"
 #include "avcodec.h"
 #include "error_resilience.h"
 #include "mpegvideo.h"
 #include "rectangle.h"
 #include "thread.h"
+#include "version.h"
 
 /**
  * @param stride the number of MVs to get to the next row
@@ -672,11 +674,15 @@ static int is_intra_more_likely(ERContext *s)
     if (undamaged_count < 5)
         return 0; // almost all MBs damaged -> use temporal prediction
 
+#if FF_API_XVMC
+FF_DISABLE_DEPRECATION_WARNINGS
     // prevent dsp.sad() check, that requires access to the image
     if (CONFIG_MPEG_XVMC_DECODER    &&
         s->avctx->xvmc_acceleration &&
         s->cur_pic->f.pict_type == AV_PICTURE_TYPE_I)
         return 1;
+FF_ENABLE_DEPRECATION_WARNINGS
+#endif /* FF_API_XVMC */
 
     skip_amount     = FFMAX(undamaged_count / 50, 1); // check only up to 50 MBs
     is_intra_likely = 0;
@@ -726,7 +732,7 @@ static int is_intra_more_likely(ERContext *s)
 
 void ff_er_frame_start(ERContext *s)
 {
-    if (!s->avctx->err_recognition)
+    if (!s->avctx->error_concealment)
         return;
 
     memset(s->error_status_table, ER_MB_ERROR | VP_START | ER_MB_END,
@@ -760,7 +766,7 @@ void ff_er_add_slice(ERContext *s, int startx, int starty,
         return;
     }
 
-    if (!s->avctx->err_recognition)
+    if (!s->avctx->error_concealment)
         return;
 
     mask &= ~VP_START;
@@ -822,9 +828,8 @@ void ff_er_frame_end(ERContext *s)
 
     /* We do not support ER of field pictures yet,
      * though it should not crash if enabled. */
-    if (!s->avctx->err_recognition || s->error_count == 0              ||
+    if (!s->avctx->error_concealment || s->error_count == 0            ||
         s->avctx->hwaccel                                              ||
-        s->avctx->codec->capabilities&CODEC_CAP_HWACCEL_VDPAU          ||
         !s->cur_pic || s->cur_pic->field_picture                               ||
         s->error_count == 3 * s->mb_width *
                           (s->avctx->skip_top + s->avctx->skip_bottom)) {
@@ -1106,9 +1111,13 @@ void ff_er_frame_end(ERContext *s)
     } else
         guess_mv(s);
 
+#if FF_API_XVMC
+FF_DISABLE_DEPRECATION_WARNINGS
     /* the filters below are not XvMC compatible, skip them */
     if (CONFIG_MPEG_XVMC_DECODER && s->avctx->xvmc_acceleration)
         goto ec_clean;
+FF_ENABLE_DEPRECATION_WARNINGS
+#endif /* FF_API_XVMC */
     /* fill DC for inter blocks */
     for (mb_y = 0; mb_y < s->mb_height; mb_y++) {
         for (mb_x = 0; mb_x < s->mb_width; mb_x++) {

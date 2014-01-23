@@ -24,7 +24,10 @@
  * internal API functions
  */
 
+#include "libavutil/internal.h"
 #include "avfilter.h"
+#include "thread.h"
+#include "version.h"
 
 #if !FF_API_AVFILTERPAD_PUBLIC
 /**
@@ -114,11 +117,30 @@ struct AVFilterPad {
      * input pads only.
      */
     int needs_fifo;
+
+    /**
+     * The filter expects writable frames from its input link,
+     * duplicating data buffers if needed.
+     *
+     * input pads only.
+     */
+    int needs_writable;
 };
 #endif
 
+struct AVFilterGraphInternal {
+    void *thread;
+    avfilter_execute_func *thread_execute;
+};
+
+struct AVFilterInternal {
+    avfilter_execute_func *execute;
+};
+
+#if FF_API_AVFILTERBUFFER
 /** default handler for freeing audio/video buffer when there are no references left */
 void ff_avfilter_default_free_buffer(AVFilterBuffer *buf);
+#endif
 
 /** Tell is a format is contained in the provided list terminated by -1. */
 int ff_fmt_is_in(int fmt, const int *fmts);
@@ -151,7 +173,9 @@ static inline void ff_insert_inpad(AVFilterContext *f, unsigned index,
     ff_insert_pad(index, &f->nb_inputs, offsetof(AVFilterLink, dstpad),
                   &f->input_pads, &f->inputs, p);
 #if FF_API_FOO_COUNT
+FF_DISABLE_DEPRECATION_WARNINGS
     f->input_count = f->nb_inputs;
+FF_ENABLE_DEPRECATION_WARNINGS
 #endif
 }
 
@@ -162,7 +186,9 @@ static inline void ff_insert_outpad(AVFilterContext *f, unsigned index,
     ff_insert_pad(index, &f->nb_outputs, offsetof(AVFilterLink, srcpad),
                   &f->output_pads, &f->outputs, p);
 #if FF_API_FOO_COUNT
+FF_DISABLE_DEPRECATION_WARNINGS
     f->output_count = f->nb_outputs;
+FF_ENABLE_DEPRECATION_WARNINGS
 #endif
 }
 
@@ -195,5 +221,20 @@ int ff_request_frame(AVFilterLink *link);
  * is responsible for unreferencing frame in case of error.
  */
 int ff_filter_frame(AVFilterLink *link, AVFrame *frame);
+
+/**
+ * Allocate a new filter context and return it.
+ *
+ * @param filter what filter to create an instance of
+ * @param inst_name name to give to the new filter context
+ *
+ * @return newly created filter context or NULL on failure
+ */
+AVFilterContext *ff_filter_alloc(const AVFilter *filter, const char *inst_name);
+
+/**
+ * Remove a filter from a graph;
+ */
+void ff_filter_graph_remove_filter(AVFilterGraph *graph, AVFilterContext *filter);
 
 #endif /* AVFILTER_INTERNAL_H */

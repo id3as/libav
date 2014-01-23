@@ -34,7 +34,7 @@
 typedef struct MSS2Context {
     VC1Context     v;
     int            split_position;
-    AVFrame        last_pic;
+    AVFrame       *last_pic;
     MSS12Context   c;
     MSS2DSPContext dsp;
     SliceContext   sc[2];
@@ -377,18 +377,11 @@ static int decode_wmv9(AVCodecContext *avctx, const uint8_t *buf, int buf_size,
 
     ff_mpeg_flush(avctx);
 
-    if (s->current_picture_ptr == NULL || s->current_picture_ptr->f.data[0]) {
-        int i = ff_find_unused_picture(s, 0);
-        if (i < 0)
-            return i;
-        s->current_picture_ptr = &s->picture[i];
-    }
-
     init_get_bits(&s->gb, buf, buf_size * 8);
 
     s->loop_filter = avctx->skip_loop_filter < AVDISCARD_ALL;
 
-    if (ff_vc1_parse_frame_header(v, &s->gb) == -1) {
+    if (ff_vc1_parse_frame_header(v, &s->gb) < 0) {
         av_log(v->s.avctx, AV_LOG_ERROR, "header error\n");
         return AVERROR_INVALIDDATA;
     }
@@ -523,8 +516,8 @@ static int mss2_decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
         return AVERROR_INVALIDDATA;
 
     avctx->pix_fmt = is_555 ? AV_PIX_FMT_RGB555 : AV_PIX_FMT_RGB24;
-    if (ctx->last_pic.format != avctx->pix_fmt)
-        av_frame_unref(&ctx->last_pic);
+    if (ctx->last_pic->format != avctx->pix_fmt)
+        av_frame_unref(ctx->last_pic);
 
     if (has_wmv9) {
         bytestream2_init(&gB, buf, buf_size + ARITH2_PADDING);
@@ -603,20 +596,20 @@ static int mss2_decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
             return ret;
         }
 
-        if (ctx->last_pic.data[0]) {
-            av_assert0(frame->linesize[0] == ctx->last_pic.linesize[0]);
-            c->last_rgb_pic = ctx->last_pic.data[0] +
-                              ctx->last_pic.linesize[0] * (avctx->height - 1);
+        if (ctx->last_pic->data[0]) {
+            av_assert0(frame->linesize[0] == ctx->last_pic->linesize[0]);
+            c->last_rgb_pic = ctx->last_pic->data[0] +
+                              ctx->last_pic->linesize[0] * (avctx->height - 1);
         } else {
             av_log(avctx, AV_LOG_ERROR, "Missing keyframe\n");
             return AVERROR_INVALIDDATA;
         }
     } else {
-        if ((ret = ff_reget_buffer(avctx, &ctx->last_pic)) < 0) {
+        if ((ret = ff_reget_buffer(avctx, ctx->last_pic)) < 0) {
             av_log(avctx, AV_LOG_ERROR, "reget_buffer() failed\n");
             return ret;
         }
-        if ((ret = av_frame_ref(frame, &ctx->last_pic)) < 0)
+        if ((ret = av_frame_ref(frame, ctx->last_pic)) < 0)
             return ret;
 
         c->last_rgb_pic = NULL;
@@ -730,8 +723,8 @@ static int mss2_decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
         av_log(avctx, AV_LOG_WARNING, "buffer not fully consumed\n");
 
     if (c->mvX < 0 || c->mvY < 0) {
-        av_frame_unref(&ctx->last_pic);
-        ret = av_frame_ref(&ctx->last_pic, frame);
+        av_frame_unref(ctx->last_pic);
+        ret = av_frame_ref(ctx->last_pic, frame);
         if (ret < 0)
             return ret;
     }
@@ -747,8 +740,6 @@ static av_cold int wmv9_init(AVCodecContext *avctx)
     int ret;
 
     v->s.avctx    = avctx;
-    avctx->flags |= CODEC_FLAG_EMU_EDGE;
-    v->s.flags   |= CODEC_FLAG_EMU_EDGE;
 
     if ((ret = ff_vc1_init_common(v)) < 0)
         return ret;
@@ -779,7 +770,7 @@ static av_cold int wmv9_init(AVCodecContext *avctx)
 
     v->overlap         = 0;
 
-    v->s.resync_marker = 0;
+    v->resync_marker   = 0;
     v->rangered        = 0;
 
     v->s.max_b_frames = avctx->max_b_frames = 0;
@@ -806,7 +797,7 @@ static av_cold int mss2_decode_end(AVCodecContext *avctx)
 {
     MSS2Context *const ctx = avctx->priv_data;
 
-    av_frame_unref(&ctx->last_pic);
+    av_frame_free(&ctx->last_pic);
 
     ff_mss12_decode_end(&ctx->c);
     av_freep(&ctx->c.pal_pic);
@@ -840,11 +831,18 @@ static av_cold int mss2_decode_init(AVCodecContext *avctx)
     avctx->pix_fmt = c->free_colours == 127 ? AV_PIX_FMT_RGB555
                                             : AV_PIX_FMT_RGB24;
 
+    ctx->last_pic = av_frame_alloc();
+    if (!ctx->last_pic) {
+        mss2_decode_end(avctx);
+        return AVERROR(ENOMEM);
+    }
+
     return 0;
 }
 
 AVCodec ff_mss2_decoder = {
     .name           = "mss2",
+    .long_name      = NULL_IF_CONFIG_SMALL("MS Windows Media Video V9 Screen"),
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_MSS2,
     .priv_data_size = sizeof(MSS2Context),
@@ -852,5 +850,4 @@ AVCodec ff_mss2_decoder = {
     .close          = mss2_decode_end,
     .decode         = mss2_decode_frame,
     .capabilities   = CODEC_CAP_DR1,
-    .long_name      = NULL_IF_CONFIG_SMALL("MS Windows Media Video V9 Screen"),
 };

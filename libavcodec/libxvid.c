@@ -54,7 +54,6 @@ struct xvid_context {
     int me_flags;                  /**< Motion Estimation flags */
     int qscale;                    /**< Do we use constant scale? */
     int quicktime_format;          /**< Are we in a QT-based format? */
-    AVFrame encoded_picture;       /**< Encoded frame information */
     char *twopassbuffer;           /**< Character buffer for two-pass */
     char *old_twopassbuffer;       /**< Old character buffer (two-pass) */
     char *twopassfile;             /**< second pass temp file name */
@@ -606,7 +605,9 @@ static av_cold int xvid_encode_init(AVCodecContext *avctx)  {
     }
 
     x->encoder_handle = xvid_enc_create.handle;
-    avctx->coded_frame = &x->encoded_picture;
+    avctx->coded_frame = av_frame_alloc();
+    if (!avctx->coded_frame)
+        return AVERROR(ENOMEM);
 
     return 0;
 }
@@ -617,7 +618,7 @@ static int xvid_encode_frame(AVCodecContext *avctx, AVPacket *pkt,
     int xerr, i, ret, user_packet = !!pkt->data;
     char *tmp;
     struct xvid_context *x = avctx->priv_data;
-    AVFrame *p = &x->encoded_picture;
+    AVFrame *p = avctx->coded_frame;
     int mb_width   = (avctx->width  + 15) / 16;
     int mb_height  = (avctx->height + 15) / 16;
 
@@ -633,7 +634,6 @@ static int xvid_encode_frame(AVCodecContext *avctx, AVPacket *pkt,
     /* Start setting up the frame */
     xvid_enc_frame.version = XVID_VERSION;
     xvid_enc_stats.version = XVID_VERSION;
-    *p = *picture;
 
     /* Let Xvid know where to put the frame. */
     xvid_enc_frame.bitstream = pkt->data;
@@ -750,6 +750,7 @@ static av_cold int xvid_encode_close(AVCodecContext *avctx) {
 
 AVCodec ff_libxvid_encoder = {
     .name           = "libxvid",
+    .long_name      = NULL_IF_CONFIG_SMALL("libxvidcore MPEG-4 part 2"),
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_MPEG4,
     .priv_data_size = sizeof(struct xvid_context),
@@ -757,5 +758,4 @@ AVCodec ff_libxvid_encoder = {
     .encode2        = xvid_encode_frame,
     .close          = xvid_encode_close,
     .pix_fmts       = (const enum AVPixelFormat[]){ AV_PIX_FMT_YUV420P, AV_PIX_FMT_NONE },
-    .long_name      = NULL_IF_CONFIG_SMALL("libxvidcore MPEG-4 part 2"),
 };

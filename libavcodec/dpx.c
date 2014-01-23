@@ -147,10 +147,9 @@ static int decode_frame(AVCodecContext *avctx,
             return AVERROR_INVALIDDATA;
     }
 
-    if ((ret = av_image_check_size(w, h, 0, avctx)) < 0)
+    if ((ret = ff_set_dimensions(avctx, w, h)) < 0)
         return ret;
-    if (w != avctx->width || h != avctx->height)
-        avcodec_set_dimensions(avctx, w, h);
+
     if ((ret = ff_get_buffer(avctx, p, 0)) < 0) {
         av_log(avctx, AV_LOG_ERROR, "get_buffer() failed\n");
         return ret;
@@ -210,9 +209,9 @@ static int decode_frame(AVCodecContext *avctx,
 
 AVCodec ff_dpx_decoder = {
     .name           = "dpx",
+    .long_name      = NULL_IF_CONFIG_SMALL("DPX image"),
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_DPX,
     .decode         = decode_frame,
-    .long_name      = NULL_IF_CONFIG_SMALL("DPX image"),
     .capabilities   = CODEC_CAP_DR1,
 };

@@ -74,7 +74,7 @@ DECLARE_ALIGNED(8, const uint64_t, ff_w1111)        = 0x0001000100010001ULL;
 #if HAVE_MMX_INLINE
 #undef RENAME
 #define COMPILE_TEMPLATE_MMXEXT 0
-#define RENAME(a) a ## _MMX
+#define RENAME(a) a ## _mmx
 #include "swscale_template.c"
 #endif
 
@@ -83,7 +83,7 @@ DECLARE_ALIGNED(8, const uint64_t, ff_w1111)        = 0x0001000100010001ULL;
 #undef RENAME
 #undef COMPILE_TEMPLATE_MMXEXT
 #define COMPILE_TEMPLATE_MMXEXT 1
-#define RENAME(a) a ## _MMXEXT
+#define RENAME(a) a ## _mmxext
 #include "swscale_template.c"
 #endif
 
@@ -302,18 +302,18 @@ INPUT_FUNCS(sse2);
 INPUT_FUNCS(ssse3);
 INPUT_FUNCS(avx);
 
-av_cold void ff_sws_init_swScale_mmx(SwsContext *c)
+av_cold void ff_sws_init_swscale_x86(SwsContext *c)
 {
     int cpu_flags = av_get_cpu_flags();
 
-#if HAVE_INLINE_ASM
-    if (cpu_flags & AV_CPU_FLAG_MMX)
-        sws_init_swScale_MMX(c);
-#if HAVE_MMXEXT_INLINE
-    if (cpu_flags & AV_CPU_FLAG_MMXEXT)
-        sws_init_swScale_MMXEXT(c);
+#if HAVE_MMX_INLINE
+    if (INLINE_MMX(cpu_flags))
+        sws_init_swscale_mmx(c);
 #endif
-#endif /* HAVE_INLINE_ASM */
+#if HAVE_MMXEXT_INLINE
+    if (INLINE_MMXEXT(cpu_flags))
+        sws_init_swscale_mmxext(c);
+#endif
 
 #define ASSIGN_SCALE_FUNC2(hscalefn, filtersize, opt1, opt2) do { \
     if (c->srcBpc == 8) { \

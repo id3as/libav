@@ -18,11 +18,14 @@
 
 #include "libavutil/channel_layout.h"
 #include "libavutil/common.h"
+#include "libavutil/internal.h"
 #include "libavcodec/avcodec.h"
 
 #include "avfilter.h"
 #include "internal.h"
+#include "version.h"
 
+#if FF_API_AVFILTERBUFFER
 /* TODO: buffer pool.  see comment for avfilter_default_get_video_buffer() */
 void ff_avfilter_default_free_buffer(AVFilterBuffer *ptr)
 {
@@ -87,7 +90,9 @@ void avfilter_unref_buffer(AVFilterBufferRef *ref)
 
 void avfilter_unref_bufferp(AVFilterBufferRef **ref)
 {
+FF_DISABLE_DEPRECATION_WARNINGS
     avfilter_unref_buffer(*ref);
+FF_ENABLE_DEPRECATION_WARNINGS
     *ref = NULL;
 }
 
@@ -173,3 +178,4 @@ void avfilter_copy_buffer_ref_props(AVFilterBufferRef *dst, AVFilterBufferRef *s
     default: break;
     }
 }
+#endif /* FF_API_AVFILTERBUFFER */

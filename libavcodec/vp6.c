@@ -32,6 +32,7 @@
 #include "avcodec.h"
 #include "get_bits.h"
 #include "huffman.h"
+#include "internal.h"
 
 #include "vp56.h"
 #include "vp56data.h"
@@ -84,10 +85,23 @@ static int vp6_parse_header(VP56Context *s, const uint8_t *buf, int buf_size,
         if (!s->macroblocks || /* first frame */
             16*cols != s->avctx->coded_width ||
             16*rows != s->avctx->coded_height) {
-            avcodec_set_dimensions(s->avctx, 16*cols, 16*rows);
-            if (s->avctx->extradata_size == 1) {
-                s->avctx->width  -= s->avctx->extradata[0] >> 4;
-                s->avctx->height -= s->avctx->extradata[0] & 0x0F;
+            if (s->avctx->extradata_size == 0 &&
+                FFALIGN(s->avctx->width,  16) == 16 * cols &&
+                FFALIGN(s->avctx->height, 16) == 16 * rows) {
+                // We assume this is properly signalled container cropping,
+                // in an F4V file. Just set the coded_width/height, don't
+                // touch the cropped ones.
+                s->avctx->coded_width  = 16 * cols;
+                s->avctx->coded_height = 16 * rows;
+            } else {
+                int ret = ff_set_dimensions(s->avctx, 16 * cols, 16 * rows);
+                if (ret < 0)
+                    return ret;
+
+                if (s->avctx->extradata_size == 1) {
+                    s->avctx->width  -= s->avctx->extradata[0] >> 4;
+                    s->avctx->height -= s->avctx->extradata[0] & 0x0F;
+                }
             }
             res = VP56_SIZE_CHANGE;
         }
@@ -144,7 +158,7 @@ static int vp6_parse_header(VP56Context *s, const uint8_t *buf, int buf_size,
         buf_size -= coeff_offset;
         if (buf_size < 0) {
             if (s->frames[VP56_FRAME_CURRENT]->key_frame)
-                avcodec_set_dimensions(s->avctx, 0, 0);
+                ff_set_dimensions(s->avctx, 0, 0);
             return AVERROR_INVALIDDATA;
         }
         if (s->use_huffman) {
@@ -368,7 +382,7 @@ static unsigned vp6_get_nb_null(VP56Context *s)
 static void vp6_parse_coeff_huffman(VP56Context *s)
 {
     VP56Model *model = s->modelp;
-    uint8_t *permute = s->scantable.permutated;
+    uint8_t *permute = s->idct_scantable;
     VLC *vlc_coeff;
     int coeff, sign, coeff_idx;
     int b, cg, idx;
@@ -428,7 +442,7 @@ static void vp6_parse_coeff(VP56Context *s)
 {
     VP56RangeCoder *c = s->ccp;
     VP56Model *model = s->modelp;
-    uint8_t *permute = s->scantable.permutated;
+    uint8_t *permute = s->idct_scantable;
     uint8_t *model1, *model2, *model3;
     int coeff, sign, coeff_idx;
     int b, i, cg, idx, ctx;
@@ -628,6 +642,7 @@ static av_cold int vp6_decode_free(AVCodecContext *avctx)
 
 AVCodec ff_vp6_decoder = {
     .name           = "vp6",
+    .long_name      = NULL_IF_CONFIG_SMALL("On2 VP6"),
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_VP6,
     .priv_data_size = sizeof(VP56Context),
@@ -635,12 +650,12 @@ AVCodec ff_vp6_decoder = {
     .close          = vp6_decode_free,
     .decode         = ff_vp56_decode_frame,
     .capabilities   = CODEC_CAP_DR1,
-    .long_name      = NULL_IF_CONFIG_SMALL("On2 VP6"),
 };
 
 /* flash version, not flipped upside-down */
 AVCodec ff_vp6f_decoder = {
     .name           = "vp6f",
+    .long_name      = NULL_IF_CONFIG_SMALL("On2 VP6 (Flash version)"),
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_VP6F,
     .priv_data_size = sizeof(VP56Context),
@@ -648,12 +663,12 @@ AVCodec ff_vp6f_decoder = {
     .close          = vp6_decode_free,
     .decode         = ff_vp56_decode_frame,
     .capabilities   = CODEC_CAP_DR1,
-    .long_name      = NULL_IF_CONFIG_SMALL("On2 VP6 (Flash version)"),
 };
 
 /* flash version, not flipped upside-down, with alpha channel */
 AVCodec ff_vp6a_decoder = {
     .name           = "vp6a",
+    .long_name      = NULL_IF_CONFIG_SMALL("On2 VP6 (Flash version, with alpha channel)"),
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_VP6A,
     .priv_data_size = sizeof(VP56Context),
@@ -661,5 +676,4 @@ AVCodec ff_vp6a_decoder = {
     .close          = vp6_decode_free,
     .decode         = ff_vp56_decode_frame,
     .capabilities   = CODEC_CAP_DR1,
-    .long_name      = NULL_IF_CONFIG_SMALL("On2 VP6 (Flash version, with alpha channel)"),
 };

@@ -123,7 +123,8 @@ typedef enum {
     SEI_BUFFERING_PERIOD            = 0,   ///< buffering period (H.264, D.1.1)
     SEI_TYPE_PIC_TIMING             = 1,   ///< picture timing
     SEI_TYPE_USER_DATA_UNREGISTERED = 5,   ///< unregistered user data
-    SEI_TYPE_RECOVERY_POINT         = 6    ///< recovery point (frame # to decoder sync)
+    SEI_TYPE_RECOVERY_POINT         = 6,   ///< recovery point (frame # to decoder sync)
+    SEI_TYPE_FRAME_PACKING          = 45,  ///< frame packing arrangement
 } SEI_Type;
 
 /**
@@ -164,6 +165,8 @@ typedef struct SPS {
     int mb_aff;                        ///< mb_adaptive_frame_field_flag
     int direct_8x8_inference_flag;
     int crop;                          ///< frame_cropping_flag
+
+    /* those 4 are already in luma samples */
     unsigned int crop_left;            ///< frame_cropping_rect_left_offset
     unsigned int crop_right;           ///< frame_cropping_rect_right_offset
     unsigned int crop_top;             ///< frame_cropping_rect_top_offset
@@ -272,8 +275,9 @@ typedef struct H264Context {
 
     int qp_thresh;      ///< QP threshold to skip loopfilter
 
+    /* coded dimensions -- 16 * mb w/h */
     int width, height;
-    int linesize, uvlinesize;
+    ptrdiff_t linesize, uvlinesize;
     int chroma_x_shift, chroma_y_shift;
 
     int qscale;
@@ -346,8 +350,8 @@ typedef struct H264Context {
     uint32_t *mb2br_xy;
     int b_stride;       // FIXME use s->b4_stride
 
-    int mb_linesize;    ///< may be equal to s->linesize or s->linesize * 2, for mbaff
-    int mb_uvlinesize;
+    ptrdiff_t mb_linesize;  ///< may be equal to s->linesize or s->linesize * 2, for mbaff
+    ptrdiff_t mb_uvlinesize;
 
     unsigned current_sps_id; ///< id of the current SPS
     SPS sps; ///< current sps
@@ -583,6 +587,14 @@ typedef struct H264Context {
     int prev_interlaced_frame;
 
     /**
+     * frame_packing_arrangment SEI message
+     */
+    int sei_frame_packing_present;
+    int frame_packing_arrangement_type;
+    int content_interpretation_type;
+    int quincunx_subsampling;
+
+    /**
      * Bit set of clock types for fields/frames in picture timing SEI message.
      * For each found ct_type, appropriate bit is set (e.g., bit 1 for
      * interlaced).
@@ -607,6 +619,27 @@ typedef struct H264Context {
      * frames.
      */
     int sei_recovery_frame_cnt;
+
+    /**
+     * recovery_frame is the frame_num at which the next frame should
+     * be fully constructed.
+     *
+     * Set to -1 when not expecting a recovery point.
+     */
+    int recovery_frame;
+
+/**
+ * We have seen an IDR, so all the following frames in coded order are correctly
+ * decodable.
+ */
+#define FRAME_RECOVERED_IDR  (1 << 0)
+/**
+ * Sufficient number of frames have been decoded since a SEI recovery point,
+ * so all the following frames in presentation order are correct.
+ */
+#define FRAME_RECOVERED_SEI  (1 << 1)
+
+    int frame_recovered;    ///< Initial frame has been completely recovered
 
     int luma_weight_flag[2];    ///< 7.4.3.2 luma_weight_lX_flag
     int chroma_weight_flag[2];  ///< 7.4.3.2 chroma_weight_lX_flag
@@ -946,5 +979,8 @@ static av_always_inline int get_dct8x8_allowed(H264Context *h)
 }
 
 void ff_h264_draw_horiz_band(H264Context *h, int y, int height);
+int ff_init_poc(H264Context *h, int pic_field_poc[2], int *pic_poc);
+int ff_pred_weight_table(H264Context *h);
+int ff_set_ref_count(H264Context *h);
 
 #endif /* AVCODEC_H264_H */

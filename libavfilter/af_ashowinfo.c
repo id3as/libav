@@ -27,6 +27,7 @@
 #include <stddef.h>
 
 #include "libavutil/adler32.h"
+#include "libavutil/attributes.h"
 #include "libavutil/channel_layout.h"
 #include "libavutil/common.h"
 #include "libavutil/mem.h"
@@ -59,7 +60,7 @@ static int config_input(AVFilterLink *inlink)
     return 0;
 }
 
-static void uninit(AVFilterContext *ctx)
+static av_cold void uninit(AVFilterContext *ctx)
 {
     AShowInfoContext *s = ctx->priv;
     av_freep(&s->plane_checksums);
@@ -126,7 +127,7 @@ static const AVFilterPad outputs[] = {
     { NULL },
 };
 
-AVFilter avfilter_af_ashowinfo = {
+AVFilter ff_af_ashowinfo = {
     .name        = "ashowinfo",
     .description = NULL_IF_CONFIG_SMALL("Show textual information for each audio frame."),
     .priv_size   = sizeof(AShowInfoContext),

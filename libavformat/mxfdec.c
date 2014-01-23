@@ -43,7 +43,7 @@
  * Only tracks with associated descriptors will be decoded. "Highly Desirable" SMPTE 377M D.1
  */
 
-//#define DEBUG
+#include <stdint.h>
 
 #include "libavutil/aes.h"
 #include "libavutil/mathematics.h"
@@ -312,7 +312,7 @@ static int mxf_get_d10_aes3_packet(AVIOContext *pb, AVStream *st, AVPacket *pkt,
     data_ptr = pkt->data;
     end_ptr = pkt->data + length;
     buf_ptr = pkt->data + 4; /* skip SMPTE 331M header */
-    for (; buf_ptr + st->codec->channels*4 < end_ptr; ) {
+    for (; end_ptr - buf_ptr >= st->codec->channels * 4; ) {
         for (i = 0; i < st->codec->channels; i++) {
             uint32_t sample = bytestream_get_le32(&buf_ptr);
             if (st->codec->bits_per_coded_sample == 24)
@@ -412,18 +412,17 @@ static int mxf_read_primer_pack(void *arg, AVIOContext *pb, int tag, int size, U
 static int mxf_read_partition_pack(void *arg, AVIOContext *pb, int tag, int size, UID uid, int64_t klv_offset)
 {
     MXFContext *mxf = arg;
-    MXFPartition *partition, *tmp_part;
+    MXFPartition *partition;
     UID op;
     uint64_t footer_partition;
     uint32_t nb_essence_containers;
+    int err;
 
-    if (mxf->partitions_count+1 >= UINT_MAX / sizeof(*mxf->partitions))
-        return AVERROR(ENOMEM);
-
-    tmp_part = av_realloc(mxf->partitions, (mxf->partitions_count + 1) * sizeof(*mxf->partitions));
-    if (!tmp_part)
-        return AVERROR(ENOMEM);
-    mxf->partitions = tmp_part;
+    if ((err = av_reallocp_array(&mxf->partitions, mxf->partitions_count + 1,
+                                 sizeof(*mxf->partitions))) < 0) {
+        mxf->partitions_count = 0;
+        return err;
+    }
 
     if (mxf->parsing_backward) {
         /* insert the new partition pack in the middle
@@ -548,13 +547,13 @@ static int mxf_read_partition_pack(void *arg, AVIOContext *pb, int tag, int size
 
 static int mxf_add_metadata_set(MXFContext *mxf, void *metadata_set)
 {
-    MXFMetadataSet **tmp;
-    if (mxf->metadata_sets_count+1 >= UINT_MAX / sizeof(*mxf->metadata_sets))
-        return AVERROR(ENOMEM);
-    tmp = av_realloc(mxf->metadata_sets, (mxf->metadata_sets_count + 1) * sizeof(*mxf->metadata_sets));
-    if (!tmp)
-        return AVERROR(ENOMEM);
-    mxf->metadata_sets = tmp;
+    int err;
+
+    if ((err = av_reallocp_array(&mxf->metadata_sets, mxf->metadata_sets_count + 1,
+                                 sizeof(*mxf->metadata_sets))) < 0) {
+        mxf->metadata_sets_count = 0;
+        return err;
+    }
     mxf->metadata_sets[mxf->metadata_sets_count] = metadata_set;
     mxf->metadata_sets_count++;
     return 0;
@@ -859,6 +858,8 @@ static int mxf_read_generic_descriptor(void *arg, AVIOContext *pb, int tag, int 
     default:
         /* Private uid used by SONY C0023S01.mxf */
         if (IS_KLV_KEY(uid, mxf_sony_mpeg4_extradata)) {
+            av_free(descriptor->extradata);
+            descriptor->extradata_size = 0;
             descriptor->extradata = av_malloc(size + FF_INPUT_BUFFER_PADDING_SIZE);
             if (!descriptor->extradata)
                 return AVERROR(ENOMEM);
@@ -926,6 +927,7 @@ static const MXFCodecUL mxf_intra_only_essence_container_uls[] = {
 /* intra-only PictureEssenceCoding ULs, where no corresponding EC UL exists */
 static const MXFCodecUL mxf_intra_only_picture_essence_coding_uls[] = {
     { { 0x06,0x0E,0x2B,0x34,0x04,0x01,0x01,0x0A,0x04,0x01,0x02,0x02,0x01,0x32,0x00,0x00 }, 14,       AV_CODEC_ID_H264 }, /* H.264/MPEG-4 AVC Intra Profiles */
+    { { 0x06,0x0E,0x2B,0x34,0x04,0x01,0x01,0x07,0x04,0x01,0x02,0x02,0x03,0x01,0x01,0x00 }, 14,   AV_CODEC_ID_JPEG2000 }, /* JPEG2000 Codestream */
     { { 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00 },  0,       AV_CODEC_ID_NONE },
 };
 
@@ -969,19 +971,23 @@ static int mxf_get_sorted_table_segments(MXFContext *mxf, int *nb_sorted_segment
     /* sort segments by {BodySID, IndexSID, IndexStartPosition}, remove duplicates while we're at it */
     for (i = 0; i < nb_segments; i++) {
         int best = -1, best_body_sid = -1, best_index_sid = -1, best_index_start = -1;
+        uint64_t best_index_duration = 0;
 
         for (j = 0; j < nb_segments; j++) {
             MXFIndexTableSegment *s = unsorted_segments[j];
 
             /* Require larger BosySID, IndexSID or IndexStartPosition then the previous entry. This removes duplicates.
              * We want the smallest values for the keys than what we currently have, unless this is the first such entry this time around.
+             * If we come across an entry with the same IndexStartPosition but larger IndexDuration, then we'll prefer it over the one we currently have.
              */
             if ((i == 0     || s->body_sid > last_body_sid || s->index_sid > last_index_sid || s->index_start_position > last_index_start) &&
-                (best == -1 || s->body_sid < best_body_sid || s->index_sid < best_index_sid || s->index_start_position < best_index_start)) {
+                (best == -1 || s->body_sid < best_body_sid || s->index_sid < best_index_sid || s->index_start_position < best_index_start ||
+                (s->index_start_position == best_index_start && s->index_duration > best_index_duration))) {
                 best             = j;
                 best_body_sid    = s->body_sid;
                 best_index_sid   = s->index_sid;
                 best_index_start = s->index_start_position;
+                best_index_duration = s->index_duration;
             }
         }
 
@@ -1234,9 +1240,9 @@ static int mxf_compute_index_tables(MXFContext *mxf)
         }
     }
 
-    if (mxf->nb_index_tables > INT_MAX / sizeof(MXFIndexTable) ||
-        !(mxf->index_tables = av_mallocz(mxf->nb_index_tables *
-                                         sizeof(MXFIndexTable)))) {
+    mxf->index_tables = av_mallocz_array(mxf->nb_index_tables,
+                                         sizeof(*mxf->index_tables));
+    if (!mxf->index_tables) {
         av_log(mxf->fc, AV_LOG_ERROR, "failed to allocate index tables\n");
         ret = AVERROR(ENOMEM);
         goto finish_decoding_index;
@@ -1255,10 +1261,10 @@ static int mxf_compute_index_tables(MXFContext *mxf)
     for (i = j = 0; j < mxf->nb_index_tables; i += mxf->index_tables[j++].nb_segments) {
         MXFIndexTable *t = &mxf->index_tables[j];
 
-        if (t->nb_segments >
-            (INT_MAX / sizeof(MXFIndexTableSegment *)) ||
-            !(t->segments = av_mallocz(t->nb_segments *
-                                       sizeof(MXFIndexTableSegment*)))) {
+        t->segments = av_mallocz_array(t->nb_segments,
+                                       sizeof(*t->segments));
+
+        if (!t->segments) {
             av_log(mxf->fc, AV_LOG_ERROR, "failed to allocate IndexTableSegment"
                    " pointer array\n");
             ret = AVERROR(ENOMEM);
@@ -1463,10 +1469,7 @@ static int mxf_parse_structural_metadata(MXFContext *mxf)
         /* TODO: drop PictureEssenceCoding and SoundEssenceCompression, only check EssenceContainer */
         codec_ul = mxf_get_codec_ul(ff_mxf_codec_uls, &descriptor->essence_codec_ul);
         st->codec->codec_id = codec_ul->id;
-        if (descriptor->extradata) {
-            st->codec->extradata = descriptor->extradata;
-            st->codec->extradata_size = descriptor->extradata_size;
-        }
+
         if (st->codec->codec_type == AVMEDIA_TYPE_VIDEO) {
             source_track->intra_only = mxf_is_intra_only(descriptor);
             container_ul = mxf_get_codec_ul(mxf_picture_essence_container_uls, essence_container_ul);
@@ -1482,6 +1485,7 @@ static int mxf_parse_structural_metadata(MXFContext *mxf)
                            "SegmentedFrame layout isn't currently supported\n");
                     break;
                 case FullFrame:
+                    st->codec->field_order = AV_FIELD_PROGRESSIVE;
                     break;
                 case OneField:
                     /* Every other line is stored and needs to be duplicated. */
@@ -1526,8 +1530,16 @@ static int mxf_parse_structural_metadata(MXFContext *mxf)
             st->codec->channels = descriptor->channels;
             st->codec->bits_per_coded_sample = descriptor->bits_per_sample;
 
-            if (descriptor->sample_rate.den > 0)
+            if (descriptor->sample_rate.den > 0) {
                 st->codec->sample_rate = descriptor->sample_rate.num / descriptor->sample_rate.den;
+                avpriv_set_pts_info(st, 64, descriptor->sample_rate.den, descriptor->sample_rate.num);
+            } else {
+                av_log(mxf->fc, AV_LOG_WARNING, "invalid sample rate (%d/%d) "
+                       "found for stream #%d, time base forced to 1/48000\n",
+                       descriptor->sample_rate.num, descriptor->sample_rate.den,
+                       st->index);
+                avpriv_set_pts_info(st, 64, 1, 48000);
+            }
 
             /* TODO: implement AV_CODEC_ID_RAWAUDIO */
             if (st->codec->codec_id == AV_CODEC_ID_PCM_S16LE) {
@@ -1543,6 +1555,17 @@ static int mxf_parse_structural_metadata(MXFContext *mxf)
             } else if (st->codec->codec_id == AV_CODEC_ID_MP2) {
                 st->need_parsing = AVSTREAM_PARSE_FULL;
             }
+        }
+        if (descriptor->extradata) {
+            st->codec->extradata = av_mallocz(descriptor->extradata_size + FF_INPUT_BUFFER_PADDING_SIZE);
+            if (st->codec->extradata) {
+                memcpy(st->codec->extradata, descriptor->extradata, descriptor->extradata_size);
+                st->codec->extradata_size = descriptor->extradata_size;
+            }
+        } else if (st->codec->codec_id == AV_CODEC_ID_H264) {
+            ret = ff_generate_avci_extradata(st);
+            if (ret < 0)
+                return ret;
         }
         if (st->codec->codec_type != AVMEDIA_TYPE_DATA && (*essence_container_ul)[15] > 0x01) {
             /* TODO: decode timestamps */
@@ -1625,6 +1648,9 @@ static int mxf_read_local_tags(MXFContext *mxf, KLVPacket *klv, MXFMetadataReadF
         /* Accept the 64k local set limit being exceeded (Avid). Don't accept
          * it extending past the end of the KLV though (zzuf5.mxf). */
         if (avio_tell(pb) > klv_end) {
+            if (ctx_size)
+                av_free(ctx);
+
             av_log(mxf->fc, AV_LOG_ERROR,
                    "local tag %#04x extends past end of local set @ %#"PRIx64"\n",
                    tag, klv->offset);
@@ -2216,9 +2242,12 @@ static int mxf_read_seek(AVFormatContext *s, int stream_index, int64_t sample_ti
         sample_time = 0;
     seconds = av_rescale(sample_time, st->time_base.num, st->time_base.den);
 
-    if ((ret = avio_seek(s->pb, (s->bit_rate * seconds) >> 3, SEEK_SET)) < 0)
-        return ret;
+    seekpos = avio_seek(s->pb, (s->bit_rate * seconds) >> 3, SEEK_SET);
+    if (seekpos < 0)
+        return seekpos;
+
     ff_update_cur_dts(s, st, sample_time);
+    mxf->current_edit_unit = sample_time;
     } else {
         t = &mxf->index_tables[0];
 

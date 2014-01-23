@@ -168,7 +168,7 @@ static av_cold int libopenjpeg_encode_init(AVCodecContext *avctx)
         return AVERROR(ENOMEM);
     }
 
-    avctx->coded_frame = avcodec_alloc_frame();
+    avctx->coded_frame = av_frame_alloc();
     if (!avctx->coded_frame) {
         av_log(avctx, AV_LOG_ERROR, "Error allocating coded frame\n");
         goto fail;
@@ -413,6 +413,7 @@ static const AVClass class = {
 
 AVCodec ff_libopenjpeg_encoder = {
     .name           = "libopenjpeg",
+    .long_name      = NULL_IF_CONFIG_SMALL("OpenJPEG JPEG 2000"),
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_JPEG2000,
     .priv_data_size = sizeof(LibOpenJPEGContext),
@@ -431,6 +432,5 @@ AVCodec ff_libopenjpeg_encoder = {
         AV_PIX_FMT_YUV420P16, AV_PIX_FMT_YUV422P16, AV_PIX_FMT_YUV444P16,
         AV_PIX_FMT_NONE
     },
-    .long_name      = NULL_IF_CONFIG_SMALL("OpenJPEG JPEG 2000"),
     .priv_class     = &class,
 };

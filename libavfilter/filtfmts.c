@@ -29,6 +29,7 @@ int main(int argc, char **argv)
 {
     AVFilter *filter;
     AVFilterContext *filter_ctx;
+    AVFilterGraph *graph_ctx;
     const char *filter_name;
     const char *filter_args = NULL;
     int i, j;
@@ -44,6 +45,11 @@ int main(int argc, char **argv)
     if (argv[2])
         filter_args = argv[2];
 
+    /* allocate graph */
+    graph_ctx = avfilter_graph_alloc();
+    if (!graph_ctx)
+        return 1;
+
     avfilter_register_all();
 
     /* get a corresponding filter and open it */
@@ -52,24 +58,25 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    if (avfilter_open(&filter_ctx, filter, NULL) < 0) {
+    /* open filter and add it to the graph */
+    if (!(filter_ctx = avfilter_graph_alloc_filter(graph_ctx, filter, filter_name))) {
         fprintf(stderr, "Impossible to open filter with name '%s'\n",
                 filter_name);
         return 1;
     }
-    if (avfilter_init_filter(filter_ctx, filter_args, NULL) < 0) {
+    if (avfilter_init_str(filter_ctx, filter_args) < 0) {
         fprintf(stderr, "Impossible to init filter '%s' with arguments '%s'\n",
                 filter_name, filter_args);
         return 1;
     }
 
     /* create a link for each of the input pads */
-    for (i = 0; i < filter_ctx->input_count; i++) {
+    for (i = 0; i < filter_ctx->nb_inputs; i++) {
         AVFilterLink *link = av_mallocz(sizeof(AVFilterLink));
         link->type = filter_ctx->filter->inputs[i].type;
         filter_ctx->inputs[i] = link;
     }
-    for (i = 0; i < filter_ctx->output_count; i++) {
+    for (i = 0; i < filter_ctx->nb_outputs; i++) {
         AVFilterLink *link = av_mallocz(sizeof(AVFilterLink));
         link->type = filter_ctx->filter->outputs[i].type;
         filter_ctx->outputs[i] = link;
@@ -81,24 +88,25 @@ int main(int argc, char **argv)
         ff_default_query_formats(filter_ctx);
 
     /* print the supported formats in input */
-    for (i = 0; i < filter_ctx->input_count; i++) {
+    for (i = 0; i < filter_ctx->nb_inputs; i++) {
         AVFilterFormats *fmts = filter_ctx->inputs[i]->out_formats;
-        for (j = 0; j < fmts->format_count; j++)
+        for (j = 0; j < fmts->nb_formats; j++)
             printf("INPUT[%d] %s: %s\n",
                    i, filter_ctx->filter->inputs[i].name,
                    av_get_pix_fmt_name(fmts->formats[j]));
     }
 
     /* print the supported formats in output */
-    for (i = 0; i < filter_ctx->output_count; i++) {
+    for (i = 0; i < filter_ctx->nb_outputs; i++) {
         AVFilterFormats *fmts = filter_ctx->outputs[i]->in_formats;
-        for (j = 0; j < fmts->format_count; j++)
+        for (j = 0; j < fmts->nb_formats; j++)
             printf("OUTPUT[%d] %s: %s\n",
                    i, filter_ctx->filter->outputs[i].name,
                    av_get_pix_fmt_name(fmts->formats[j]));
     }
 
     avfilter_free(filter_ctx);
+    avfilter_graph_free(&graph_ctx);
     fflush(stdout);
     return 0;
 }

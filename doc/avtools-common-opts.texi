@@ -74,6 +74,10 @@ Print detailed information about the demuxer named @var{demuxer_name}. Use the
 Print detailed information about the muxer named @var{muxer_name}. Use the
 @option{-formats} option to get a list of all muxers and demuxers.
 
+@item filter=@var{filter_name}
+Print detailed information about the filter name @var{filter_name}. Use the
+@option{-filters} option to get a list of all filters.
+
 @end table
 
 @item -version
@@ -138,6 +142,10 @@ can be disabled setting the environment variable
 the environment variable @env{AV_LOG_FORCE_COLOR}.
 The use of the environment variable @env{NO_COLOR} is deprecated and
 will be dropped in a following Libav version.
+
+@item -cpuflags mask (@emph{global})
+Set a mask that's applied to autodetected CPU flags. This option is intended
+for testing. Do not use it unless you know what you're doing.
 
 @end table
 

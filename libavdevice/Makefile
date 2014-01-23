@@ -29,6 +29,8 @@ OBJS-$(CONFIG_X11GRAB_INDEV)             += x11grab.o
 OBJS-$(CONFIG_LIBCDIO_INDEV)             += libcdio.o
 OBJS-$(CONFIG_LIBDC1394_INDEV)           += libdc1394.o
 
+OBJS-$(HAVE_LIBC_MSVCRT)                 += file_open.o
+
 SKIPHEADERS-$(HAVE_ALSA_ASOUNDLIB_H)     += alsa-audio.h
 SKIPHEADERS-$(HAVE_SNDIO_H)              += sndio_common.h
 

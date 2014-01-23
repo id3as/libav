@@ -1,7 +1,7 @@
 /*
  * MMS protocol over TCP
  * Copyright (c) 2006,2007 Ryan Martell
- * Copyright (c) 2007 Björn Axelsson
+ * Copyright (c) 2007 BjÃ¶rn Axelsson
  * Copyright (c) 2010 Zhentan Feng <spyfeng at gmail dot com>
  *
  * This file is part of Libav.
@@ -331,16 +331,16 @@ static MMSSCPacketType get_tcp_server_response(MMSTContext *mmst)
 
             // if we successfully read everything.
             if(packet_id_type == mmst->header_packet_id) {
+                int err;
                 packet_type = SC_PKT_ASF_HEADER;
                 // Store the asf header
                 if(!mms->header_parsed) {
-                    void *p = av_realloc(mms->asf_header,
-                                  mms->asf_header_size + mms->remaining_in_len);
-                    if (!p) {
-                        av_freep(&mms->asf_header);
-                        return AVERROR(ENOMEM);
+                    if ((err = av_reallocp(&mms->asf_header,
+                                           mms->asf_header_size +
+                                           mms->remaining_in_len)) < 0) {
+                        mms->asf_header_size = 0;
+                        return err;
                     }
-                    mms->asf_header = p;
                     memcpy(mms->asf_header + mms->asf_header_size,
                            mms->read_in_ptr, mms->remaining_in_len);
                     mms->asf_header_size += mms->remaining_in_len;

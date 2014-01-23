@@ -44,7 +44,6 @@
  *        - (encoding) select best mv table (two choices)
  *        - (encoding) select best vlc/dc table
  */
-//#define DEBUG
 
 /* This table is practically identical to the one from h263
  * except that it is inverted. */
@@ -243,10 +242,7 @@ int ff_msmpeg4_pred_dc(MpegEncContext *s, int n,
         : "%eax", "%edx"
     );
 #else
-    /* #elif ARCH_ALPHA */
-    /* Divisions are extremely costly on Alpha; optimize the most
-       common case. But they are costly everywhere...
-     */
+    /* Divisions are costly everywhere; optimize the most common case. */
     if (scale == 8) {
         a = (a + (8 >> 1)) / 8;
         b = (b + (8 >> 1)) / 8;

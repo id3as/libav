@@ -233,6 +233,9 @@ input file name
 @item -y (@emph{global})
 Overwrite output files without asking.
 
+@item -n (@emph{global})
+Immediately exit when output files already exist.
+
 @item -c[:@var{stream_specifier}] @var{codec} (@emph{input/output,per-stream})
 @itemx -codec[:@var{stream_specifier}] @var{codec} (@emph{input/output,per-stream})
 Select an encoder (when used before an output file) or a decoder (when used
@@ -262,9 +265,15 @@ Set the file size limit.
 
 @item -ss @var{position} (@emph{input/output})
 When used as an input option (before @code{-i}), seeks in this input file to
-@var{position}. When used as an output option (before an output filename),
-decodes but discards input until the timestamps reach @var{position}. This is
-slower, but more accurate.
+@var{position}. Note the in most formats it is not possible to seek exactly, so
+@command{avconv} will seek to the closest seek point before @var{position}.
+When transcoding and @option{-accurate_seek} is enabled (the default), this
+extra segment between the seek point and @var{position} will be decoded and
+discarded. When doing stream copy or when @option{-noaccurate_seek} is used, it
+will be preserved.
+
+When used as an output option (before an output filename), decodes but discards
+input until the timestamps reach @var{position}.
 
 @var{position} may be either in seconds or in @code{hh:mm:ss[.xxx]} form.
 
@@ -521,10 +530,6 @@ Discard threshold.
 @item -rc_override[:@var{stream_specifier}] @var{override} (@emph{output,per-stream})
 rate control override for specific intervals
 
-@item -deinterlace
-Deinterlace pictures.
-This option is deprecated since the deinterlacing is very low quality.
-Use the yadif filter with @code{-filter:v yadif}.
 @item -vstats
 Dump video coding statistics to @file{vstats_HHMMSS.log}.
 @item -vstats_file @var{file}
@@ -547,6 +552,42 @@ The timestamps must be specified in ascending order.
 @item -copyinkf[:@var{stream_specifier}] (@emph{output,per-stream})
 When doing stream copy, copy also non-key frames found at the
 beginning.
+
+@item -hwaccel[:@var{stream_specifier}] @var{hwaccel} (@emph{input,per-stream})
+Use hardware acceleration to decode the matching stream(s). The allowed values
+of @var{hwaccel} are:
+@table @option
+@item none
+Do not use any hardware acceleration (the default).
+
+@item auto
+Automatically select the hardware acceleration method.
+
+@item vdpau
+Use VDPAU (Video Decode and Presentation API for Unix) hardware acceleration.
+@end table
+
+This option has no effect if the selected hwaccel is not available or not
+supported by the chosen decoder.
+
+Note that most acceleration methods are intended for playback and will not be
+faster than software decoding on modern CPUs. Additionally, @command{avconv}
+will usually need to copy the decoded frames from the GPU memory into the system
+memory, resulting in further performance loss. This option is thus mainly
+useful for testing.
+
+@item -hwaccel_device[:@var{stream_specifier}] @var{hwaccel_device} (@emph{input,per-stream})
+Select a device to use for hardware acceleration.
+
+This option only makes sense when the @option{-hwaccel} option is also
+specified. Its exact meaning depends on the specific hardware acceleration
+method chosen.
+
+@table @option
+@item vdpau
+For VDPAU, this option specifies the X11 display/screen to use. If this option
+is not specified, the value of the @var{DISPLAY} environment variable is used
+@end table
 @end table
 
 @section Audio Options
@@ -714,7 +755,10 @@ Dump each input packet to stderr.
 @item -hex (@emph{global})
 When dumping packets, also dump the payload.
 @item -re (@emph{input})
-Read input at native frame rate. Mainly used to simulate a grab device.
+Read input at native frame rate. Mainly used to simulate a grab device
+or live input stream (e.g. when reading from a file). Should not be used
+with actual grab devices or live input streams (where it can cause packet
+loss).
 @item -vsync @var{parameter}
 Video sync method.
 
@@ -780,10 +824,6 @@ avconv -i file.mov -an -vn -bsf:s mov2textsub -c:s copy -f rawvideo sub.txt
 @item -tag[:@var{stream_specifier}] @var{codec_tag} (@emph{output,per-stream})
 Force a tag/fourcc for matching streams.
 
-@item -cpuflags mask (@emph{global})
-Set a mask that's applied to autodetected CPU flags.  This option is intended
-for testing. Do not use it unless you know what you're doing.
-
 @item -filter_complex @var{filtergraph} (@emph{global})
 Define a complex filter graph, i.e. one with arbitrary number of inputs and/or
 outputs. For simple graphs -- those with one input and one output of the same
@@ -834,6 +874,12 @@ avconv -filter_complex 'color=red' -t 5 out.mkv
 This option is similar to @option{-filter_complex}, the only difference is that
 its argument is the name of the file from which a complex filtergraph
 description is to be read.
+
+@item -accurate_seek (@emph{input})
+This option enables or disables accurate seeking in input files with the
+@option{-ss} option. It is enabled by default, so seeking is accurate when
+transcoding. Use @option{-noaccurate_seek} to disable it, which may be useful
+e.g. when copying some streams and transcoding the others.
 
 @end table
 @c man end OPTIONS

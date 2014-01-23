@@ -39,8 +39,6 @@
 #include "rv34data.h"
 #include "rv34.h"
 
-//#define DEBUG
-
 static inline void ZERO8x2(void* dst, int stride)
 {
     fill_rectangle(dst,                 1, 2, stride, 0, 4);
@@ -725,12 +723,18 @@ static inline void rv34_mc(RV34DecContext *r, const int block_type,
         uint8_t *uvbuf = s->edge_emu_buffer + 22 * s->linesize;
 
         srcY -= 2 + 2*s->linesize;
-        s->vdsp.emulated_edge_mc(s->edge_emu_buffer, srcY, s->linesize, (width<<3)+6, (height<<3)+6,
+        s->vdsp.emulated_edge_mc(s->edge_emu_buffer, srcY,
+                                 s->linesize, s->linesize,
+                                 (width << 3) + 6, (height << 3) + 6,
                             src_x - 2, src_y - 2, s->h_edge_pos, s->v_edge_pos);
         srcY = s->edge_emu_buffer + 2 + 2*s->linesize;
-        s->vdsp.emulated_edge_mc(uvbuf     , srcU, s->uvlinesize, (width<<2)+1, (height<<2)+1,
+        s->vdsp.emulated_edge_mc(uvbuf, srcU,
+                                 s->uvlinesize,s->uvlinesize,
+                                 (width << 2) + 1, (height << 2) + 1,
                             uvsrc_x, uvsrc_y, s->h_edge_pos >> 1, s->v_edge_pos >> 1);
-        s->vdsp.emulated_edge_mc(uvbuf + 16, srcV, s->uvlinesize, (width<<2)+1, (height<<2)+1,
+        s->vdsp.emulated_edge_mc(uvbuf + 16, srcV,
+                                 s->uvlinesize, s->uvlinesize,
+                                 (width << 2) + 1, (height << 2) + 1,
                             uvsrc_x, uvsrc_y, s->h_edge_pos >> 1, s->v_edge_pos >> 1);
         srcU = uvbuf;
         srcV = uvbuf + 16;
@@ -1477,8 +1481,6 @@ av_cold int ff_rv34_decode_init(AVCodecContext *avctx)
     s->height = avctx->height;
 
     r->s.avctx = avctx;
-    avctx->flags |= CODEC_FLAG_EMU_EDGE;
-    r->s.flags |= CODEC_FLAG_EMU_EDGE;
     avctx->pix_fmt = AV_PIX_FMT_YUV420P;
     avctx->has_b_frames = 1;
     s->low_delay = 0;
@@ -1497,8 +1499,10 @@ av_cold int ff_rv34_decode_init(AVCodecContext *avctx)
         ff_rv40dsp_init(&r->rdsp);
 #endif
 
-    if ((ret = rv34_decoder_alloc(r)) < 0)
+    if ((ret = rv34_decoder_alloc(r)) < 0) {
+        ff_MPV_common_end(&r->s);
         return ret;
+    }
 
     if(!intra_vlcs[0].cbppattern[0].bits)
         rv34_init_tables();
@@ -1519,8 +1523,10 @@ int ff_rv34_decode_init_thread_copy(AVCodecContext *avctx)
         r->tmp_b_block_base = NULL;
         if ((err = ff_MPV_common_init(&r->s)) < 0)
             return err;
-        if ((err = rv34_decoder_alloc(r)) < 0)
+        if ((err = rv34_decoder_alloc(r)) < 0) {
+            ff_MPV_common_end(&r->s);
             return err;
+        }
     }
 
     return 0;
@@ -1665,7 +1671,11 @@ int ff_rv34_decode_frame(AVCodecContext *avctx,
 
             s->width  = si.width;
             s->height = si.height;
-            avcodec_set_dimensions(s->avctx, s->width, s->height);
+
+            err = ff_set_dimensions(s->avctx, s->width, s->height);
+            if (err < 0)
+                return err;
+
             if ((err = ff_MPV_common_frame_size_change(s)) < 0)
                 return err;
             if ((err = rv34_decoder_realloc(r)) < 0)

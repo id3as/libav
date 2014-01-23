@@ -335,7 +335,7 @@ static int decode_slice(AVCodecContext *c, void *arg)
     FFV1Context *fs = *(void **)arg;
     FFV1Context *f  = fs->avctx->priv_data;
     int width, height, x, y, ret;
-    const int ps = (av_pix_fmt_desc_get(c->pix_fmt)->flags & PIX_FMT_PLANAR)
+    const int ps = (av_pix_fmt_desc_get(c->pix_fmt)->flags & AV_PIX_FMT_FLAG_PLANAR)
                    ? (c->bits_per_raw_sample > 8) + 1
                    : 4;
     AVFrame *const p = f->cur;
@@ -669,6 +669,7 @@ static int read_header(FFV1Context *f)
             return AVERROR(ENOSYS);
         }
         switch (f->avctx->bits_per_raw_sample) {
+        case 0:
         case 8:
             f->avctx->pix_fmt = AV_PIX_FMT_RGB32;
             break;
@@ -783,6 +784,10 @@ static av_cold int ffv1_decode_init(AVCodecContext *avctx)
 
     ffv1_common_init(avctx);
 
+    f->last_picture = av_frame_alloc();
+    if (!f->last_picture)
+        return AVERROR(ENOMEM);
+
     if (avctx->extradata && (ret = read_extra_header(f)) < 0)
         return ret;
 
@@ -875,7 +880,7 @@ static int ffv1_decode_frame(AVCodecContext *avctx, void *data,
     for (i = f->slice_count - 1; i >= 0; i--) {
         FFV1Context *fs = f->slice_context[i];
         int j;
-        if (fs->slice_damaged && f->last_picture.data[0]) {
+        if (fs->slice_damaged && f->last_picture->data[0]) {
             const uint8_t *src[4];
             uint8_t *dst[4];
             for (j = 0; j < 4; j++) {
@@ -883,12 +888,12 @@ static int ffv1_decode_frame(AVCodecContext *avctx, void *data,
                 int sv = (j == 1 || j == 2) ? f->chroma_v_shift : 0;
                 dst[j] = p->data[j] + p->linesize[j] *
                          (fs->slice_y >> sv) + (fs->slice_x >> sh);
-                src[j] = f->last_picture.data[j] +
-                         f->last_picture.linesize[j] *
+                src[j] = f->last_picture->data[j] +
+                         f->last_picture->linesize[j] *
                          (fs->slice_y >> sv) + (fs->slice_x >> sh);
             }
             av_image_copy(dst, p->linesize, (const uint8_t **)src,
-                          f->last_picture.linesize,
+                          f->last_picture->linesize,
                           avctx->pix_fmt, fs->slice_width,
                           fs->slice_height);
         }
@@ -896,8 +901,8 @@ static int ffv1_decode_frame(AVCodecContext *avctx, void *data,
 
     f->picture_number++;
 
-    av_frame_unref(&f->last_picture);
-    if ((ret = av_frame_ref(&f->last_picture, p)) < 0)
+    av_frame_unref(f->last_picture);
+    if ((ret = av_frame_ref(f->last_picture, p)) < 0)
         return ret;
     f->cur = NULL;
 
@@ -906,15 +911,26 @@ static int ffv1_decode_frame(AVCodecContext *avctx, void *data,
     return buf_size;
 }
 
+static av_cold int ffv1_decode_close(AVCodecContext *avctx)
+{
+    FFV1Context *s = avctx->priv_data;;
+
+    av_frame_free(&s->last_picture);
+
+    ffv1_close(avctx);
+
+    return 0;
+}
+
 AVCodec ff_ffv1_decoder = {
     .name           = "ffv1",
+    .long_name      = NULL_IF_CONFIG_SMALL("FFmpeg video codec #1"),
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_FFV1,
     .priv_data_size = sizeof(FFV1Context),
     .init           = ffv1_decode_init,
-    .close          = ffv1_close,
+    .close          = ffv1_decode_close,
     .decode         = ffv1_decode_frame,
     .capabilities   = CODEC_CAP_DR1 /*| CODEC_CAP_DRAW_HORIZ_BAND*/ |
                       CODEC_CAP_SLICE_THREADS,
-    .long_name      = NULL_IF_CONFIG_SMALL("FFmpeg video codec #1"),
 };

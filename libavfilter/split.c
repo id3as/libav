@@ -25,6 +25,7 @@
 
 #include <stdio.h>
 
+#include "libavutil/attributes.h"
 #include "libavutil/internal.h"
 #include "libavutil/mem.h"
 #include "libavutil/opt.h"
@@ -39,7 +40,7 @@ typedef struct SplitContext {
     int nb_outputs;
 } SplitContext;
 
-static int split_init(AVFilterContext *ctx)
+static av_cold int split_init(AVFilterContext *ctx)
 {
     SplitContext *s = ctx->priv;
     int i;
@@ -58,7 +59,7 @@ static int split_init(AVFilterContext *ctx)
     return 0;
 }
 
-static void split_uninit(AVFilterContext *ctx)
+static av_cold void split_uninit(AVFilterContext *ctx)
 {
     int i;
 
@@ -117,9 +118,9 @@ static const AVFilterPad avfilter_vf_split_inputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_vf_split = {
+AVFilter ff_vf_split = {
     .name      = "split",
-    .description = NULL_IF_CONFIG_SMALL("Pass on the input to two outputs."),
+    .description = NULL_IF_CONFIG_SMALL("Pass on the input to N video outputs."),
 
     .priv_size  = sizeof(SplitContext),
     .priv_class = &split_class,
@@ -129,6 +130,8 @@ AVFilter avfilter_vf_split = {
 
     .inputs    = avfilter_vf_split_inputs,
     .outputs   = NULL,
+
+    .flags     = AVFILTER_FLAG_DYNAMIC_OUTPUTS,
 };
 
 static const AVFilterPad avfilter_af_asplit_inputs[] = {
@@ -141,7 +144,7 @@ static const AVFilterPad avfilter_af_asplit_inputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_af_asplit = {
+AVFilter ff_af_asplit = {
     .name        = "asplit",
     .description = NULL_IF_CONFIG_SMALL("Pass on the audio input to N audio outputs."),
 
@@ -153,4 +156,6 @@ AVFilter avfilter_af_asplit = {
 
     .inputs  = avfilter_af_asplit_inputs,
     .outputs = NULL,
+
+    .flags   = AVFILTER_FLAG_DYNAMIC_OUTPUTS,
 };

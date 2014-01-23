@@ -113,6 +113,7 @@ static int av_unused get_cabac(CABACContext *c, uint8_t * const state){
     return get_cabac_inline(c,state);
 }
 
+#ifndef get_cabac_bypass
 static int av_unused get_cabac_bypass(CABACContext *c){
     int range;
     c->low += c->low;
@@ -128,7 +129,7 @@ static int av_unused get_cabac_bypass(CABACContext *c){
         return 1;
     }
 }
-
+#endif
 
 #ifndef get_cabac_bypass_sign
 static av_always_inline int get_cabac_bypass_sign(CABACContext *c, int val){
@@ -159,6 +160,26 @@ static int av_unused get_cabac_terminate(CABACContext *c){
     }else{
         return c->bytestream - c->bytestream_start;
     }
+}
+
+/**
+ * Skip @p n bytes and reset the decoder.
+ * @return the address of the first skipped byte or NULL if there's less than @p n bytes left
+ */
+static av_unused const uint8_t* skip_bytes(CABACContext *c, int n) {
+    const uint8_t *ptr = c->bytestream;
+
+    if (c->low & 0x1)
+        ptr--;
+#if CABAC_BITS == 16
+    if (c->low & 0x1FF)
+        ptr--;
+#endif
+    if ((int) (c->bytestream_end - ptr) < n)
+        return NULL;
+    ff_init_cabac_decoder(c, ptr + n, c->bytestream_end - ptr - n);
+
+    return ptr;
 }
 
 #endif /* AVCODEC_CABAC_FUNCTIONS_H */

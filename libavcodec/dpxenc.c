@@ -26,7 +26,6 @@
 #include "internal.h"
 
 typedef struct DPXContext {
-    AVFrame picture;
     int big_endian;
     int bits_per_component;
     int descriptor;
@@ -36,7 +35,10 @@ static av_cold int encode_init(AVCodecContext *avctx)
 {
     DPXContext *s = avctx->priv_data;
 
-    avctx->coded_frame = &s->picture;
+    avctx->coded_frame = av_frame_alloc();
+    if (!avctx->coded_frame)
+        return AVERROR(ENOMEM);
+
     avctx->coded_frame->pict_type = AV_PICTURE_TYPE_I;
     avctx->coded_frame->key_frame = 1;
 
@@ -173,18 +175,25 @@ static int encode_frame(AVCodecContext *avctx, AVPacket *pkt,
     return 0;
 }
 
+static av_cold int encode_close(AVCodecContext *avctx)
+{
+    av_frame_free(&avctx->coded_frame);
+    return 0;
+}
+
 AVCodec ff_dpx_encoder = {
     .name = "dpx",
+    .long_name = NULL_IF_CONFIG_SMALL("DPX image"),
     .type = AVMEDIA_TYPE_VIDEO,
     .id   = AV_CODEC_ID_DPX,
     .priv_data_size = sizeof(DPXContext),
     .init   = encode_init,
     .encode2 = encode_frame,
+    .close   = encode_close,
     .pix_fmts = (const enum AVPixelFormat[]){
         AV_PIX_FMT_RGB24,
         AV_PIX_FMT_RGBA,
         AV_PIX_FMT_RGB48LE,
         AV_PIX_FMT_RGB48BE,
         AV_PIX_FMT_NONE},
-    .long_name = NULL_IF_CONFIG_SMALL("DPX image"),
 };

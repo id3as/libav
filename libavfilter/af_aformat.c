@@ -114,7 +114,7 @@ static int query_formats(AVFilterContext *ctx)
     AFormatContext *s = ctx->priv;
 
     ff_set_common_formats(ctx, s->formats ? s->formats :
-                                                  ff_all_formats(AVMEDIA_TYPE_AUDIO));
+                                            ff_all_formats(AVMEDIA_TYPE_AUDIO));
     ff_set_common_samplerates(ctx, s->sample_rates ? s->sample_rates :
                                                      ff_all_samplerates());
     ff_set_common_channel_layouts(ctx, s->channel_layouts ? s->channel_layouts :
@@ -139,7 +139,7 @@ static const AVFilterPad avfilter_af_aformat_outputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_af_aformat = {
+AVFilter ff_af_aformat = {
     .name          = "aformat",
     .description   = NULL_IF_CONFIG_SMALL("Convert the input audio to one of the specified formats."),
     .init          = init,

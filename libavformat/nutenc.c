@@ -19,6 +19,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#include <stdint.h>
+
 #include "libavutil/intreadwrite.h"
 #include "libavutil/mathematics.h"
 #include "libavutil/tree.h"
@@ -93,7 +95,7 @@ static int find_expected_header(AVCodecContext *c, int size, int key_frame,
         header |= (bitrate_index & 1) << 9;
 
         return 2; //FIXME actually put the needed ones in build_elision_headers()
-        return 3; //we guess that the private bit is not set
+        //return 3; //we guess that the private bit is not set
 //FIXME the above assumptions should be checked, if these turn out false too often something should be done
     }
     return 0;
@@ -323,7 +325,7 @@ static void write_mainheader(NUTContext *nut, AVIOContext *bc)
         tmp_head_idx;
     int64_t tmp_match;
 
-    ff_put_v(bc, 3); /* version */
+    ff_put_v(bc, NUT_VERSION);
     ff_put_v(bc, nut->avf->nb_streams);
     ff_put_v(bc, nut->max_distance);
     ff_put_v(bc, nut->time_base_count);
@@ -815,7 +817,8 @@ static int nut_write_packet(AVFormatContext *s, AVPacket *pkt)
         ff_put_v(dyn_bc, sp ? (nut->last_syncpoint_pos - sp->pos) >> 4 : 0);
         put_packet(nut, bc, dyn_bc, 1, SYNCPOINT_STARTCODE);
 
-        ff_nut_add_sp(nut, nut->last_syncpoint_pos, 0 /*unused*/, pkt->dts);
+        if ((ret = ff_nut_add_sp(nut, nut->last_syncpoint_pos, 0 /*unused*/, pkt->dts)) < 0)
+            return ret;
     }
     assert(nus->last_pts != AV_NOPTS_VALUE);
 

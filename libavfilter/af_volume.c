@@ -174,7 +174,7 @@ static inline void scale_samples_s32(uint8_t *dst, const uint8_t *src,
 
 
 
-static void volume_init(VolumeContext *vol)
+static av_cold void volume_init(VolumeContext *vol)
 {
     vol->samples_align = 1;
 
@@ -296,7 +296,7 @@ static const AVFilterPad avfilter_af_volume_outputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_af_volume = {
+AVFilter ff_af_volume = {
     .name           = "volume",
     .description    = NULL_IF_CONFIG_SMALL("Change input volume."),
     .query_formats  = query_formats,

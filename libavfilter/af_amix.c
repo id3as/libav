@@ -28,6 +28,7 @@
  * output.
  */
 
+#include "libavutil/attributes.h"
 #include "libavutil/audio_fifo.h"
 #include "libavutil/avassert.h"
 #include "libavutil/avstring.h"
@@ -488,7 +489,7 @@ fail:
     return ret;
 }
 
-static int init(AVFilterContext *ctx)
+static av_cold int init(AVFilterContext *ctx)
 {
     MixContext *s = ctx->priv;
     int i;
@@ -510,7 +511,7 @@ static int init(AVFilterContext *ctx)
     return 0;
 }
 
-static void uninit(AVFilterContext *ctx)
+static av_cold void uninit(AVFilterContext *ctx)
 {
     int i;
     MixContext *s = ctx->priv;
@@ -550,7 +551,7 @@ static const AVFilterPad avfilter_af_amix_outputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_af_amix = {
+AVFilter ff_af_amix = {
     .name          = "amix",
     .description   = NULL_IF_CONFIG_SMALL("Audio mixing."),
     .priv_size     = sizeof(MixContext),
@@ -562,4 +563,6 @@ AVFilter avfilter_af_amix = {
 
     .inputs    = NULL,
     .outputs   = avfilter_af_amix_outputs,
+
+    .flags     = AVFILTER_FLAG_DYNAMIC_INPUTS,
 };

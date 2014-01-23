@@ -53,7 +53,6 @@
 #include "put_bits.h"
 
 typedef struct {
-    AVFrame picture;
     LZWState *lzw;
     uint8_t *buf;
 } GIFContext;
@@ -131,7 +130,13 @@ static av_cold int gif_encode_init(AVCodecContext *avctx)
 {
     GIFContext *s = avctx->priv_data;
 
-    avctx->coded_frame = &s->picture;
+    avctx->coded_frame = av_frame_alloc();
+    if (!avctx->coded_frame)
+        return AVERROR(ENOMEM);
+
+    avctx->coded_frame->pict_type = AV_PICTURE_TYPE_I;
+    avctx->coded_frame->key_frame = 1;
+
     s->lzw = av_mallocz(ff_lzw_encode_state_size);
     if (!s->lzw)
         return AVERROR(ENOMEM);
@@ -145,8 +150,6 @@ static av_cold int gif_encode_init(AVCodecContext *avctx)
 static int gif_encode_frame(AVCodecContext *avctx, AVPacket *pkt,
                             const AVFrame *pict, int *got_packet)
 {
-    GIFContext *s = avctx->priv_data;
-    AVFrame *const p = &s->picture;
     uint8_t *outbuf_ptr, *end;
     int ret;
 
@@ -157,9 +160,6 @@ static int gif_encode_frame(AVCodecContext *avctx, AVPacket *pkt,
     outbuf_ptr = pkt->data;
     end        = pkt->data + pkt->size;
 
-    *p = *pict;
-    p->pict_type = AV_PICTURE_TYPE_I;
-    p->key_frame = 1;
     gif_image_write_header(avctx, &outbuf_ptr, (uint32_t *)pict->data[1]);
     gif_image_write_image(avctx, &outbuf_ptr, end, pict->data[0], pict->linesize[0]);
 
@@ -174,6 +174,8 @@ static int gif_encode_close(AVCodecContext *avctx)
 {
     GIFContext *s = avctx->priv_data;
 
+    av_frame_free(&avctx->coded_frame);
+
     av_freep(&s->lzw);
     av_freep(&s->buf);
     return 0;
@@ -181,6 +183,7 @@ static int gif_encode_close(AVCodecContext *avctx)
 
 AVCodec ff_gif_encoder = {
     .name           = "gif",
+    .long_name      = NULL_IF_CONFIG_SMALL("GIF (Graphics Interchange Format)"),
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_GIF,
     .priv_data_size = sizeof(GIFContext),
@@ -191,5 +194,4 @@ AVCodec ff_gif_encoder = {
         AV_PIX_FMT_RGB8, AV_PIX_FMT_BGR8, AV_PIX_FMT_RGB4_BYTE, AV_PIX_FMT_BGR4_BYTE,
         AV_PIX_FMT_GRAY8, AV_PIX_FMT_PAL8, AV_PIX_FMT_NONE
     },
-    .long_name      = NULL_IF_CONFIG_SMALL("GIF (Graphics Interchange Format)"),
 };

@@ -27,11 +27,11 @@
  * Libavformat version macros
  */
 
-#include "libavutil/avutil.h"
+#include "libavutil/version.h"
 
 #define LIBAVFORMAT_VERSION_MAJOR 55
-#define LIBAVFORMAT_VERSION_MINOR  0
-#define LIBAVFORMAT_VERSION_MICRO  0
+#define LIBAVFORMAT_VERSION_MINOR 10
+#define LIBAVFORMAT_VERSION_MICRO  3
 
 #define LIBAVFORMAT_VERSION_INT AV_VERSION_INT(LIBAVFORMAT_VERSION_MAJOR, \
                                                LIBAVFORMAT_VERSION_MINOR, \
@@ -48,5 +48,8 @@
  * dropped at a future version bump. The defines themselves are not part of
  * the public API and may change, break or disappear at any time.
  */
+#ifndef FF_API_REFERENCE_DTS
+#define FF_API_REFERENCE_DTS            (LIBAVFORMAT_VERSION_MAJOR < 56)
+#endif
 
 #endif /* AVFORMAT_VERSION_H */

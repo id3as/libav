@@ -693,7 +693,8 @@ static int tak_decode_frame(AVCodecContext *avctx, void *data,
     if (avctx->err_recognition & AV_EF_CRCCHECK) {
         if (ff_tak_check_crc(pkt->data, hsize)) {
             av_log(avctx, AV_LOG_ERROR, "CRC error\n");
-            return AVERROR_INVALIDDATA;
+            if (avctx->err_recognition & AV_EF_EXPLODE)
+                return AVERROR_INVALIDDATA;
         }
     }
 
@@ -867,7 +868,8 @@ static int tak_decode_frame(AVCodecContext *avctx, void *data,
         if (ff_tak_check_crc(pkt->data + hsize,
                              get_bits_count(gb) / 8 - hsize)) {
             av_log(avctx, AV_LOG_ERROR, "CRC error\n");
-            return AVERROR_INVALIDDATA;
+            if (avctx->err_recognition & AV_EF_EXPLODE)
+                return AVERROR_INVALIDDATA;
         }
     }
 
@@ -915,6 +917,7 @@ static av_cold int tak_decode_close(AVCodecContext *avctx)
 
 AVCodec ff_tak_decoder = {
     .name             = "tak",
+    .long_name        = NULL_IF_CONFIG_SMALL("TAK (Tom's lossless Audio Kompressor)"),
     .type             = AVMEDIA_TYPE_AUDIO,
     .id               = AV_CODEC_ID_TAK,
     .priv_data_size   = sizeof(TAKDecContext),
@@ -923,7 +926,6 @@ AVCodec ff_tak_decoder = {
     .close            = tak_decode_close,
     .decode           = tak_decode_frame,
     .capabilities     = CODEC_CAP_DR1,
-    .long_name        = NULL_IF_CONFIG_SMALL("TAK (Tom's lossless Audio Kompressor)"),
     .sample_fmts      = (const enum AVSampleFormat[]) { AV_SAMPLE_FMT_U8P,
                                                         AV_SAMPLE_FMT_S16P,
                                                         AV_SAMPLE_FMT_S32P,

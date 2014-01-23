@@ -19,7 +19,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-/* #define DEBUG */
+#include <stdint.h>
 
 #include "avformat.h"
 #include "avio_internal.h"
@@ -28,6 +28,7 @@
 #include "libavcodec/bytestream.h"
 #include "libavutil/opt.h"
 #include "libavutil/dict.h"
+#include "libavutil/internal.h"
 #include "libavutil/pixdesc.h"
 #include "metadata.h"
 #include "id3v2.h"
@@ -68,152 +69,6 @@ const char *avformat_license(void)
     return LICENSE_PREFIX LIBAV_LICENSE + sizeof(LICENSE_PREFIX) - 1;
 }
 
-/** head of registered input format linked list */
-static AVInputFormat *first_iformat = NULL;
-/** head of registered output format linked list */
-static AVOutputFormat *first_oformat = NULL;
-
-AVInputFormat  *av_iformat_next(AVInputFormat  *f)
-{
-    if(f) return f->next;
-    else  return first_iformat;
-}
-
-AVOutputFormat *av_oformat_next(AVOutputFormat *f)
-{
-    if(f) return f->next;
-    else  return first_oformat;
-}
-
-void av_register_input_format(AVInputFormat *format)
-{
-    AVInputFormat **p;
-    p = &first_iformat;
-    while (*p != NULL) p = &(*p)->next;
-    *p = format;
-    format->next = NULL;
-}
-
-void av_register_output_format(AVOutputFormat *format)
-{
-    AVOutputFormat **p;
-    p = &first_oformat;
-    while (*p != NULL) p = &(*p)->next;
-    *p = format;
-    format->next = NULL;
-}
-
-int av_match_ext(const char *filename, const char *extensions)
-{
-    const char *ext, *p;
-    char ext1[32], *q;
-
-    if(!filename)
-        return 0;
-
-    ext = strrchr(filename, '.');
-    if (ext) {
-        ext++;
-        p = extensions;
-        for(;;) {
-            q = ext1;
-            while (*p != '\0' && *p != ',' && q-ext1<sizeof(ext1)-1)
-                *q++ = *p++;
-            *q = '\0';
-            if (!av_strcasecmp(ext1, ext))
-                return 1;
-            if (*p == '\0')
-                break;
-            p++;
-        }
-    }
-    return 0;
-}
-
-static int match_format(const char *name, const char *names)
-{
-    const char *p;
-    int len, namelen;
-
-    if (!name || !names)
-        return 0;
-
-    namelen = strlen(name);
-    while ((p = strchr(names, ','))) {
-        len = FFMAX(p - names, namelen);
-        if (!av_strncasecmp(name, names, len))
-            return 1;
-        names = p+1;
-    }
-    return !av_strcasecmp(name, names);
-}
-
-AVOutputFormat *av_guess_format(const char *short_name, const char *filename,
-                                const char *mime_type)
-{
-    AVOutputFormat *fmt = NULL, *fmt_found;
-    int score_max, score;
-
-    /* specific test for image sequences */
-#if CONFIG_IMAGE2_MUXER
-    if (!short_name && filename &&
-        av_filename_number_test(filename) &&
-        ff_guess_image2_codec(filename) != AV_CODEC_ID_NONE) {
-        return av_guess_format("image2", NULL, NULL);
-    }
-#endif
-    /* Find the proper file type. */
-    fmt_found = NULL;
-    score_max = 0;
-    while ((fmt = av_oformat_next(fmt))) {
-        score = 0;
-        if (fmt->name && short_name && !av_strcasecmp(fmt->name, short_name))
-            score += 100;
-        if (fmt->mime_type && mime_type && !strcmp(fmt->mime_type, mime_type))
-            score += 10;
-        if (filename && fmt->extensions &&
-            av_match_ext(filename, fmt->extensions)) {
-            score += 5;
-        }
-        if (score > score_max) {
-            score_max = score;
-            fmt_found = fmt;
-        }
-    }
-    return fmt_found;
-}
-
-enum AVCodecID av_guess_codec(AVOutputFormat *fmt, const char *short_name,
-                            const char *filename, const char *mime_type, enum AVMediaType type){
-    if(type == AVMEDIA_TYPE_VIDEO){
-        enum AVCodecID codec_id= AV_CODEC_ID_NONE;
-
-#if CONFIG_IMAGE2_MUXER
-        if(!strcmp(fmt->name, "image2") || !strcmp(fmt->name, "image2pipe")){
-            codec_id= ff_guess_image2_codec(filename);
-        }
-#endif
-        if(codec_id == AV_CODEC_ID_NONE)
-            codec_id= fmt->video_codec;
-        return codec_id;
-    }else if(type == AVMEDIA_TYPE_AUDIO)
-        return fmt->audio_codec;
-    else if (type == AVMEDIA_TYPE_SUBTITLE)
-        return fmt->subtitle_codec;
-    else
-        return AV_CODEC_ID_NONE;
-}
-
-AVInputFormat *av_find_input_format(const char *short_name)
-{
-    AVInputFormat *fmt = NULL;
-    while ((fmt = av_iformat_next(fmt))) {
-        if (match_format(short_name, fmt->name))
-            return fmt;
-    }
-    return NULL;
-}
-
 /* an arbitrarily chosen "sane" max packet size -- 50M */
 #define SANE_CHUNK_SIZE (50000000)
 
@@ -224,7 +79,7 @@ AVInputFormat *av_find_input_format(const char *short_name)
 static int append_packet_chunked(AVIOContext *s, AVPacket *pkt, int size)
 {
     int64_t chunk_size = size;
-    int orig_pos       = pkt->pos; // av_grow_packet might reset pos
+    int64_t orig_pos   = pkt->pos; // av_grow_packet might reset pos
     int orig_size      = pkt->size;
     int ret = 0;
 
@@ -309,7 +164,7 @@ AVInputFormat *av_probe_input_format2(AVProbeData *pd, int is_opened, int *score
             score = fmt1->read_probe(&lpd);
         } else if (fmt1->extensions) {
             if (av_match_ext(lpd.filename, fmt1->extensions)) {
-                score = 50;
+                score = AVPROBE_SCORE_EXTENSION;
             }
         }
         if (score > *score_max) {
@@ -320,18 +175,18 @@ AVInputFormat *av_probe_input_format2(AVProbeData *pd, int is_opened, int *score
     }
 
     /* a hack for files with huge id3v2 tags -- try to guess by file extension. */
-    if (!fmt && is_opened && *score_max < AVPROBE_SCORE_MAX/4) {
+    if (!fmt && is_opened && *score_max < AVPROBE_SCORE_EXTENSION / 2) {
         while ((fmt = av_iformat_next(fmt)))
             if (fmt->extensions && av_match_ext(lpd.filename, fmt->extensions)) {
-                *score_max = AVPROBE_SCORE_MAX/4;
+                *score_max = AVPROBE_SCORE_EXTENSION / 2;
                 break;
             }
     }
 
-    if (!fmt && id3 && *score_max < AVPROBE_SCORE_MAX/4-1) {
+    if (!fmt && id3 && *score_max < AVPROBE_SCORE_EXTENSION / 2 - 1) {
         while ((fmt = av_iformat_next(fmt)))
             if (fmt->extensions && av_match_ext("mp3", fmt->extensions)) {
-                *score_max = AVPROBE_SCORE_MAX/4-1;
+                *score_max = AVPROBE_SCORE_EXTENSION / 2 - 1;
                 break;
             }
     }
@@ -387,8 +242,8 @@ int av_probe_input_buffer(AVIOContext *pb, AVInputFormat **fmt,
                           const char *filename, void *logctx,
                           unsigned int offset, unsigned int max_probe_size)
 {
-    AVProbeData pd = { filename ? filename : "", NULL, -offset };
-    unsigned char *buf = NULL;
+    AVProbeData pd = { filename ? filename : "" };
+    uint8_t *buf = NULL;
     int ret = 0, probe_size;
 
     if (!max_probe_size) {
@@ -402,19 +257,17 @@ int av_probe_input_buffer(AVIOContext *pb, AVInputFormat **fmt,
     if (offset >= max_probe_size) {
         return AVERROR(EINVAL);
     }
+    avio_skip(pb, offset);
+    max_probe_size -= offset;
 
     for(probe_size= PROBE_BUF_MIN; probe_size<=max_probe_size && !*fmt;
         probe_size = FFMIN(probe_size<<1, FFMAX(max_probe_size, probe_size+1))) {
         int score = probe_size < max_probe_size ? AVPROBE_SCORE_MAX/4 : 0;
-        int buf_offset = (probe_size == PROBE_BUF_MIN) ? 0 : probe_size>>1;
-
-        if (probe_size < offset) {
-            continue;
-        }
 
         /* read probe data */
-        buf = av_realloc(buf, probe_size + AVPROBE_PADDING_SIZE);
-        if ((ret = avio_read(pb, buf + buf_offset, probe_size - buf_offset)) < 0) {
+        if ((ret = av_reallocp(&buf, probe_size + AVPROBE_PADDING_SIZE)) < 0)
+            return ret;
+        if ((ret = avio_read(pb, buf + pd.buf_size, probe_size - pd.buf_size)) < 0) {
             /* fail if error was not end of file, otherwise, lower score */
             if (ret != AVERROR_EOF) {
                 av_free(buf);
@@ -424,7 +277,7 @@ int av_probe_input_buffer(AVIOContext *pb, AVInputFormat **fmt,
             ret = 0;            /* error was end of file, nothing read */
         }
         pd.buf_size += ret;
-        pd.buf = &buf[offset];
+        pd.buf       = buf;
 
         memset(pd.buf + pd.buf_size, 0, AVPROBE_PADDING_SIZE);
 
@@ -596,7 +449,7 @@ fail:
 
 /*******************************************************/
 
-static void probe_codec(AVFormatContext *s, AVStream *st, const AVPacket *pkt)
+static int probe_codec(AVFormatContext *s, AVStream *st, const AVPacket *pkt)
 {
     if(st->codec->codec_id == AV_CODEC_ID_PROBE){
         AVProbeData *pd = &st->probe_data;
@@ -604,7 +457,10 @@ static void probe_codec(AVFormatContext *s, AVStream *st, const AVPacket *pkt)
         --st->probe_packets;
 
         if (pkt) {
-            pd->buf = av_realloc(pd->buf, pd->buf_size+pkt->size+AVPROBE_PADDING_SIZE);
+            int err;
+            if ((err = av_reallocp(&pd->buf, pd->buf_size + pkt->size +
+                                   AVPROBE_PADDING_SIZE)) < 0)
+                return err;
             memcpy(pd->buf+pd->buf_size, pkt->data, pkt->size);
             pd->buf_size += pkt->size;
             memset(pd->buf+pd->buf_size, 0, AVPROBE_PADDING_SIZE);
@@ -613,7 +469,7 @@ static void probe_codec(AVFormatContext *s, AVStream *st, const AVPacket *pkt)
             if (!pd->buf_size) {
                 av_log(s, AV_LOG_ERROR, "nothing to probe for stream %d\n",
                        st->index);
-                return;
+                return 0;
             }
         }
 
@@ -627,11 +483,12 @@ static void probe_codec(AVFormatContext *s, AVStream *st, const AVPacket *pkt)
             }
         }
     }
+    return 0;
 }
 
 int ff_read_packet(AVFormatContext *s, AVPacket *pkt)
 {
-    int ret, i;
+    int ret, i, err;
     AVStream *st;
 
     for(;;){
@@ -644,7 +501,8 @@ int ff_read_packet(AVFormatContext *s, AVPacket *pkt)
                 s->raw_packet_buffer_remaining_size < pkt->size) {
                 AVProbeData *pd;
                 if (st->probe_packets) {
-                    probe_codec(s, st, NULL);
+                    if ((err = probe_codec(s, st, NULL)) < 0)
+                        return err;
                 }
                 pd = &st->probe_data;
                 av_freep(&pd->buf);
@@ -666,7 +524,8 @@ int ff_read_packet(AVFormatContext *s, AVPacket *pkt)
             for (i = 0; i < s->nb_streams; i++) {
                 st = s->streams[i];
                 if (st->probe_packets) {
-                    probe_codec(s, st, NULL);
+                    if ((err = probe_codec(s, st, NULL)) < 0)
+                        return err;
                 }
             }
             continue;
@@ -702,7 +561,8 @@ int ff_read_packet(AVFormatContext *s, AVPacket *pkt)
         add_to_pktbuf(&s->raw_packet_buffer, pkt, &s->raw_packet_buffer_end);
         s->raw_packet_buffer_remaining_size -= pkt->size;
 
-        probe_codec(s, st, pkt);
+        if ((err = probe_codec(s, st, pkt)) < 0)
+            return err;
     }
 }
 
@@ -722,7 +582,7 @@ int ff_get_audio_frame_size(AVCodecContext *enc, int size, int mux)
     if ((frame_size = av_get_audio_frame_duration(enc, size)) > 0)
         return frame_size;
 
-    /* fallback to using frame_size if muxing */
+    /* Fall back on using frame_size if muxing. */
     if (enc->frame_size > 1)
         return enc->frame_size;
 
@@ -875,8 +735,9 @@ static void compute_pkt_fields(AVFormatContext *s, AVStream *st,
         pc && pc->pict_type != AV_PICTURE_TYPE_B)
         presentation_delayed = 1;
 
-    if(pkt->pts != AV_NOPTS_VALUE && pkt->dts != AV_NOPTS_VALUE && pkt->dts > pkt->pts && st->pts_wrap_bits<63
-       /*&& pkt->dts-(1LL<<st->pts_wrap_bits) < pkt->pts*/){
+    if (pkt->pts != AV_NOPTS_VALUE && pkt->dts != AV_NOPTS_VALUE &&
+        st->pts_wrap_bits < 63 &&
+        pkt->dts - (1LL << (st->pts_wrap_bits - 1)) > pkt->pts) {
         pkt->dts -= 1LL<<st->pts_wrap_bits;
     }
 
@@ -907,25 +768,6 @@ static void compute_pkt_fields(AVFormatContext *s, AVStream *st,
             pkt->pts += offset;
         if(pkt->dts != AV_NOPTS_VALUE)
             pkt->dts += offset;
-    }
-
-    if (pc && pc->dts_sync_point >= 0) {
-        // we have synchronization info from the parser
-        int64_t den = st->codec->time_base.den * (int64_t) st->time_base.num;
-        if (den > 0) {
-            int64_t num = st->codec->time_base.num * (int64_t) st->time_base.den;
-            if (pkt->dts != AV_NOPTS_VALUE) {
-                // got DTS from the stream, update reference timestamp
-                st->reference_dts = pkt->dts - pc->dts_ref_dts_delta * num / den;
-                pkt->pts = pkt->dts + pc->pts_dts_delta * num / den;
-            } else if (st->reference_dts != AV_NOPTS_VALUE) {
-                // compute DTS based on reference timestamp
-                pkt->dts = st->reference_dts + pc->dts_ref_dts_delta * num / den;
-                pkt->pts = pkt->dts + pc->pts_dts_delta * num / den;
-            }
-            if (pc->dts_sync_point > 0)
-                st->reference_dts = pkt->dts; // new reference
-        }
     }
 
     /* This may be redundant, but it should not hurt. */
@@ -1064,6 +906,13 @@ static int parse_packet(AVFormatContext *s, AVPacket *pkt, int stream_index)
         if (!out_pkt.size)
             continue;
 
+        if (pkt->side_data) {
+            out_pkt.side_data       = pkt->side_data;
+            out_pkt.side_data_elems = pkt->side_data_elems;
+            pkt->side_data       = NULL;
+            pkt->side_data_elems = 0;
+        }
+
         /* set the duration */
         out_pkt.duration = 0;
         if (st->codec->codec_type == AVMEDIA_TYPE_AUDIO) {
@@ -1104,8 +953,10 @@ static int parse_packet(AVFormatContext *s, AVPacket *pkt, int stream_index)
             out_pkt.buf   = pkt->buf;
             pkt->buf      = NULL;
 #if FF_API_DESTRUCT_PACKET
+FF_DISABLE_DEPRECATION_WARNINGS
             out_pkt.destruct = pkt->destruct;
             pkt->destruct = NULL;
+FF_ENABLE_DEPRECATION_WARNINGS
 #endif
         }
         if ((ret = av_dup_packet(&out_pkt)) < 0)
@@ -1343,7 +1194,6 @@ void ff_read_frame_flush(AVFormatContext *s)
         }
         st->last_IP_pts = AV_NOPTS_VALUE;
         st->cur_dts = AV_NOPTS_VALUE; /* we set the current DTS to an unspecified origin */
-        st->reference_dts = AV_NOPTS_VALUE;
 
         st->probe_packets = MAX_PROBE_PACKETS;
 
@@ -1790,8 +1640,8 @@ int avformat_seek_file(AVFormatContext *s, int stream_index, int64_t min_ts, int
         //try to seek via read_timestamp()
     }
 
-    //Fallback to old API if new is not implemented but old is
-    //Note the old has somewat different sematics
+    // Fall back on old API if new is not implemented but old is.
+    // Note the old API has somewhat different semantics.
     if(s->iformat->read_seek || 1)
         return av_seek_frame(s, stream_index, ts, flags | ((uint64_t)ts - min_ts > (uint64_t)max_ts - ts ? AVSEEK_FLAG_BACKWARD : 0));
 
@@ -1886,16 +1736,21 @@ static void fill_all_stream_timings(AVFormatContext *ic)
 static void estimate_timings_from_bit_rate(AVFormatContext *ic)
 {
     int64_t filesize, duration;
-    int bit_rate, i;
+    int i;
     AVStream *st;
 
     /* if bit_rate is already set, we believe it */
     if (ic->bit_rate <= 0) {
-        bit_rate = 0;
+        int bit_rate = 0;
         for(i=0;i<ic->nb_streams;i++) {
             st = ic->streams[i];
-            if (st->codec->bit_rate > 0)
-            bit_rate += st->codec->bit_rate;
+            if (st->codec->bit_rate > 0) {
+                if (INT_MAX - st->codec->bit_rate < bit_rate) {
+                    bit_rate = 0;
+                    break;
+                }
+                bit_rate += st->codec->bit_rate;
+            }
         }
         ic->bit_rate = bit_rate;
     }
@@ -1992,7 +1847,6 @@ static void estimate_timings_from_pts(AVFormatContext *ic, int64_t old_offset)
         st= ic->streams[i];
         st->cur_dts= st->first_dts;
         st->last_IP_pts = AV_NOPTS_VALUE;
-        st->reference_dts = AV_NOPTS_VALUE;
     }
 }
 
@@ -2073,7 +1927,7 @@ static int try_decode_frame(AVStream *st, AVPacket *avpkt, AVDictionary **option
 {
     const AVCodec *codec;
     int got_picture = 1, ret = 0;
-    AVFrame *frame = avcodec_alloc_frame();
+    AVFrame *frame = av_frame_alloc();
     AVPacket pkt = *avpkt;
 
     if (!frame)
@@ -2116,7 +1970,6 @@ static int try_decode_frame(AVStream *st, AVPacket *avpkt, AVDictionary **option
            !has_decode_delay_been_guessed(st) ||
            (!st->codec_info_nb_frames && st->codec->codec->capabilities & CODEC_CAP_CHANNEL_CONF))) {
         got_picture = 0;
-        avcodec_get_frame_defaults(frame);
         switch(st->codec->codec_type) {
         case AVMEDIA_TYPE_VIDEO:
             ret = avcodec_decode_video2(st->codec, frame,
@@ -2138,7 +1991,7 @@ static int try_decode_frame(AVStream *st, AVPacket *avpkt, AVDictionary **option
     }
 
 fail:
-    avcodec_free_frame(&frame);
+    av_frame_free(&frame);
     return ret;
 }
 
@@ -2496,6 +2349,10 @@ int avformat_find_stream_info(AVFormatContext *ic, AVDictionary **options)
                 int      best_fps = 0;
                 double best_error = 0.01;
 
+                if (delta_dts     >= INT64_MAX / st->time_base.num ||
+                    delta_packets >= INT64_MAX / st->time_base.den ||
+                    delta_dts < 0)
+                    continue;
                 av_reduce(&st->avg_frame_rate.num, &st->avg_frame_rate.den,
                           delta_packets*(int64_t)st->time_base.den,
                           delta_dts*(int64_t)st->time_base.num, 60000);
@@ -2541,8 +2398,7 @@ int avformat_find_stream_info(AVFormatContext *ic, AVDictionary **options)
 
  find_stream_info_err:
     for (i=0; i < ic->nb_streams; i++) {
-        if (ic->streams[i]->codec)
-            ic->streams[i]->codec->thread_count = 0;
+        ic->streams[i]->codec->thread_count = 0;
         av_freep(&ic->streams[i]->info);
     }
     return ret;
@@ -2703,14 +2559,11 @@ AVStream *avformat_new_stream(AVFormatContext *s, AVCodec *c)
 {
     AVStream *st;
     int i;
-    AVStream **streams;
 
-    if (s->nb_streams >= INT_MAX/sizeof(*streams))
+    if (av_reallocp_array(&s->streams, s->nb_streams + 1, sizeof(*s->streams)) < 0) {
+        s->nb_streams = 0;
         return NULL;
-    streams = av_realloc(s->streams, (s->nb_streams + 1) * sizeof(*streams));
-    if (!streams)
-        return NULL;
-    s->streams = streams;
+    }
 
     st = av_mallocz(sizeof(AVStream));
     if (!st)
@@ -2741,7 +2594,6 @@ AVStream *avformat_new_stream(AVFormatContext *s, AVCodec *c)
     st->last_IP_pts = AV_NOPTS_VALUE;
     for(i=0; i<MAX_REORDER_DELAY+1; i++)
         st->pts_buffer[i]= AV_NOPTS_VALUE;
-    st->reference_dts = AV_NOPTS_VALUE;
 
     st->sample_aspect_ratio = (AVRational){0,1};
 
@@ -2803,7 +2655,6 @@ void ff_program_add_stream_index(AVFormatContext *ac, int progid, unsigned int i
 {
     int i, j;
     AVProgram *program=NULL;
-    void *tmp;
 
     if (idx >= ac->nb_streams) {
         av_log(ac, AV_LOG_ERROR, "stream index %d is not valid\n", idx);
@@ -2818,10 +2669,12 @@ void ff_program_add_stream_index(AVFormatContext *ac, int progid, unsigned int i
             if(program->stream_index[j] == idx)
                 return;
 
-        tmp = av_realloc(program->stream_index, sizeof(unsigned int)*(program->nb_stream_indexes+1));
-        if(!tmp)
+        if (av_reallocp_array(&program->stream_index,
+                              program->nb_stream_indexes + 1,
+                              sizeof(*program->stream_index)) < 0) {
+            program->nb_stream_indexes = 0;
             return;
-        program->stream_index = tmp;
+        }
         program->stream_index[program->nb_stream_indexes++] = idx;
         return;
     }
@@ -3250,68 +3103,6 @@ void avpriv_set_pts_info(AVStream *s, int pts_wrap_bits,
     s->pts_wrap_bits = pts_wrap_bits;
 }
 
-int ff_url_join(char *str, int size, const char *proto,
-                const char *authorization, const char *hostname,
-                int port, const char *fmt, ...)
-{
-#if CONFIG_NETWORK
-    struct addrinfo hints = { 0 }, *ai;
-#endif
-
-    str[0] = '\0';
-    if (proto)
-        av_strlcatf(str, size, "%s://", proto);
-    if (authorization && authorization[0])
-        av_strlcatf(str, size, "%s@", authorization);
-#if CONFIG_NETWORK && defined(AF_INET6)
-    /* Determine if hostname is a numerical IPv6 address,
-     * properly escape it within [] in that case. */
-    hints.ai_flags = AI_NUMERICHOST;
-    if (!getaddrinfo(hostname, NULL, &hints, &ai)) {
-        if (ai->ai_family == AF_INET6) {
-            av_strlcat(str, "[", size);
-            av_strlcat(str, hostname, size);
-            av_strlcat(str, "]", size);
-        } else {
-            av_strlcat(str, hostname, size);
-        }
-        freeaddrinfo(ai);
-    } else
-#endif
-        /* Not an IPv6 address, just output the plain string. */
-        av_strlcat(str, hostname, size);
-
-    if (port >= 0)
-        av_strlcatf(str, size, ":%d", port);
-    if (fmt) {
-        va_list vl;
-        int len = strlen(str);
-
-        va_start(vl, fmt);
-        vsnprintf(str + len, size > len ? size - len : 0, fmt, vl);
-        va_end(vl);
-    }
-    return strlen(str);
-}
-
-int ff_write_chained(AVFormatContext *dst, int dst_stream, AVPacket *pkt,
-                     AVFormatContext *src)
-{
-    AVPacket local_pkt;
-
-    local_pkt = *pkt;
-    local_pkt.stream_index = dst_stream;
-    if (pkt->pts != AV_NOPTS_VALUE)
-        local_pkt.pts = av_rescale_q(pkt->pts,
-                                     src->streams[pkt->stream_index]->time_base,
-                                     dst->streams[dst_stream]->time_base);
-    if (pkt->dts != AV_NOPTS_VALUE)
-        local_pkt.dts = av_rescale_q(pkt->dts,
-                                     src->streams[pkt->stream_index]->time_base,
-                                     dst->streams[dst_stream]->time_base);
-    return av_write_frame(dst, &local_pkt);
-}
-
 void ff_parse_key_value(const char *str, ff_parse_key_val_cb callback_get_buf,
                         void *context)
 {
@@ -3374,75 +3165,6 @@ int ff_find_stream_index(AVFormatContext *s, int id)
             return i;
     }
     return -1;
-}
-
-void ff_make_absolute_url(char *buf, int size, const char *base,
-                          const char *rel)
-{
-    char *sep, *path_query;
-    /* Absolute path, relative to the current server */
-    if (base && strstr(base, "://") && rel[0] == '/') {
-        if (base != buf)
-            av_strlcpy(buf, base, size);
-        sep = strstr(buf, "://");
-        if (sep) {
-            /* Take scheme from base url */
-            if (rel[1] == '/') {
-                sep[1] = '\0';
-            } else {
-                /* Take scheme and host from base url */
-                sep += 3;
-                sep = strchr(sep, '/');
-                if (sep)
-                    *sep = '\0';
-            }
-        }
-        av_strlcat(buf, rel, size);
-        return;
-    }
-    /* If rel actually is an absolute url, just copy it */
-    if (!base || strstr(rel, "://") || rel[0] == '/') {
-        av_strlcpy(buf, rel, size);
-        return;
-    }
-    if (base != buf)
-        av_strlcpy(buf, base, size);
-
-    /* Strip off any query string from base */
-    path_query = strchr(buf, '?');
-    if (path_query != NULL)
-        *path_query = '\0';
-
-    /* Is relative path just a new query part? */
-    if (rel[0] == '?') {
-        av_strlcat(buf, rel, size);
-        return;
-    }
-
-    /* Remove the file name from the base url */
-    sep = strrchr(buf, '/');
-    if (sep)
-        sep[1] = '\0';
-    else
-        buf[0] = '\0';
-    while (av_strstart(rel, "../", NULL) && sep) {
-        /* Remove the path delimiter at the end */
-        sep[0] = '\0';
-        sep = strrchr(buf, '/');
-        /* If the next directory name to pop off is "..", break here */
-        if (!strcmp(sep ? &sep[1] : buf, "..")) {
-            /* Readd the slash we just removed */
-            av_strlcat(buf, "/", size);
-            break;
-        }
-        /* Cut off the directory name */
-        if (sep)
-            sep[1] = '\0';
-        else
-            buf[0] = '\0';
-        rel += 3;
-    }
-    av_strlcat(buf, rel, size);
 }
 
 int64_t ff_iso8601_to_unix_time(const char *datestr)
@@ -3540,65 +3262,104 @@ int ff_add_param_change(AVPacket *pkt, int32_t channels,
     return 0;
 }
 
-const struct AVCodecTag *avformat_get_riff_video_tags(void)
+int ff_generate_avci_extradata(AVStream *st)
 {
-    return ff_codec_bmp_tags;
-}
-const struct AVCodecTag *avformat_get_riff_audio_tags(void)
-{
-    return ff_codec_wav_tags;
-}
+    static const uint8_t avci100_1080p_extradata[] = {
+        // SPS
+        0x00, 0x00, 0x00, 0x01, 0x67, 0x7a, 0x10, 0x29,
+        0xb6, 0xd4, 0x20, 0x22, 0x33, 0x19, 0xc6, 0x63,
+        0x23, 0x21, 0x01, 0x11, 0x98, 0xce, 0x33, 0x19,
+        0x18, 0x21, 0x02, 0x56, 0xb9, 0x3d, 0x7d, 0x7e,
+        0x4f, 0xe3, 0x3f, 0x11, 0xf1, 0x9e, 0x08, 0xb8,
+        0x8c, 0x54, 0x43, 0xc0, 0x78, 0x02, 0x27, 0xe2,
+        0x70, 0x1e, 0x30, 0x10, 0x10, 0x14, 0x00, 0x00,
+        0x03, 0x00, 0x04, 0x00, 0x00, 0x03, 0x00, 0xca,
+        0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        // PPS
+        0x00, 0x00, 0x00, 0x01, 0x68, 0xce, 0x33, 0x48,
+        0xd0
+    };
+    static const uint8_t avci100_1080i_extradata[] = {
+        // SPS
+        0x00, 0x00, 0x00, 0x01, 0x67, 0x7a, 0x10, 0x29,
+        0xb6, 0xd4, 0x20, 0x22, 0x33, 0x19, 0xc6, 0x63,
+        0x23, 0x21, 0x01, 0x11, 0x98, 0xce, 0x33, 0x19,
+        0x18, 0x21, 0x03, 0x3a, 0x46, 0x65, 0x6a, 0x65,
+        0x24, 0xad, 0xe9, 0x12, 0x32, 0x14, 0x1a, 0x26,
+        0x34, 0xad, 0xa4, 0x41, 0x82, 0x23, 0x01, 0x50,
+        0x2b, 0x1a, 0x24, 0x69, 0x48, 0x30, 0x40, 0x2e,
+        0x11, 0x12, 0x08, 0xc6, 0x8c, 0x04, 0x41, 0x28,
+        0x4c, 0x34, 0xf0, 0x1e, 0x01, 0x13, 0xf2, 0xe0,
+        0x3c, 0x60, 0x20, 0x20, 0x28, 0x00, 0x00, 0x03,
+        0x00, 0x08, 0x00, 0x00, 0x03, 0x01, 0x94, 0x00,
+        // PPS
+        0x00, 0x00, 0x00, 0x01, 0x68, 0xce, 0x33, 0x48,
+        0xd0
+    };
+    static const uint8_t avci50_1080i_extradata[] = {
+        // SPS
+        0x00, 0x00, 0x00, 0x01, 0x67, 0x6e, 0x10, 0x28,
+        0xa6, 0xd4, 0x20, 0x32, 0x33, 0x0c, 0x71, 0x18,
+        0x88, 0x62, 0x10, 0x19, 0x19, 0x86, 0x38, 0x8c,
+        0x44, 0x30, 0x21, 0x02, 0x56, 0x4e, 0x6e, 0x61,
+        0x87, 0x3e, 0x73, 0x4d, 0x98, 0x0c, 0x03, 0x06,
+        0x9c, 0x0b, 0x73, 0xe6, 0xc0, 0xb5, 0x18, 0x63,
+        0x0d, 0x39, 0xe0, 0x5b, 0x02, 0xd4, 0xc6, 0x19,
+        0x1a, 0x79, 0x8c, 0x32, 0x34, 0x24, 0xf0, 0x16,
+        0x81, 0x13, 0xf7, 0xff, 0x80, 0x01, 0x80, 0x02,
+        0x71, 0x80, 0x80, 0x80, 0xa0, 0x00, 0x00, 0x03,
+        0x00, 0x20, 0x00, 0x00, 0x06, 0x50, 0x80, 0x00,
+        // PPS
+        0x00, 0x00, 0x00, 0x01, 0x68, 0xee, 0x31, 0x12,
+        0x11
+    };
+    static const uint8_t avci100_720p_extradata[] = {
+        // SPS
+        0x00, 0x00, 0x00, 0x01, 0x67, 0x7a, 0x10, 0x29,
+        0xb6, 0xd4, 0x20, 0x2a, 0x33, 0x1d, 0xc7, 0x62,
+        0xa1, 0x08, 0x40, 0x54, 0x66, 0x3b, 0x8e, 0xc5,
+        0x42, 0x02, 0x10, 0x25, 0x64, 0x2c, 0x89, 0xe8,
+        0x85, 0xe4, 0x21, 0x4b, 0x90, 0x83, 0x06, 0x95,
+        0xd1, 0x06, 0x46, 0x97, 0x20, 0xc8, 0xd7, 0x43,
+        0x08, 0x11, 0xc2, 0x1e, 0x4c, 0x91, 0x0f, 0x01,
+        0x40, 0x16, 0xec, 0x07, 0x8c, 0x04, 0x04, 0x05,
+        0x00, 0x00, 0x03, 0x00, 0x01, 0x00, 0x00, 0x03,
+        0x00, 0x64, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
+        // PPS
+        0x00, 0x00, 0x00, 0x01, 0x68, 0xce, 0x31, 0x12,
+        0x11
+    };
 
-static int match_host_pattern(const char *pattern, const char *hostname)
-{
-    int len_p, len_h;
-    if (!strcmp(pattern, "*"))
-        return 1;
-    // Skip a possible *. at the start of the pattern
-    if (pattern[0] == '*')
-        pattern++;
-    if (pattern[0] == '.')
-        pattern++;
-    len_p = strlen(pattern);
-    len_h = strlen(hostname);
-    if (len_p > len_h)
-        return 0;
-    // Simply check if the end of hostname is equal to 'pattern'
-    if (!strcmp(pattern, &hostname[len_h - len_p])) {
-        if (len_h == len_p)
-            return 1; // Exact match
-        if (hostname[len_h - len_p - 1] == '.')
-            return 1; // The matched substring is a domain and not just a substring of a domain
+    const uint8_t *data = NULL;
+    int size = 0;
+
+    if (st->codec->width == 1920) {
+        if (st->codec->field_order == AV_FIELD_PROGRESSIVE) {
+            data = avci100_1080p_extradata;
+            size = sizeof(avci100_1080p_extradata);
+        } else {
+            data = avci100_1080i_extradata;
+            size = sizeof(avci100_1080i_extradata);
+        }
+    } else if (st->codec->width == 1440) {
+        data = avci50_1080i_extradata;
+        size = sizeof(avci50_1080i_extradata);
+    } else if (st->codec->width == 1280) {
+        data = avci100_720p_extradata;
+        size = sizeof(avci100_720p_extradata);
     }
+
+    if (!size)
+        return 0;
+
+    av_freep(&st->codec->extradata);
+    st->codec->extradata_size = 0;
+    st->codec->extradata = av_mallocz(size + FF_INPUT_BUFFER_PADDING_SIZE);
+    if (!st->codec->extradata)
+        return AVERROR(ENOMEM);
+
+    memcpy(st->codec->extradata, data, size);
+    st->codec->extradata_size = size;
+
     return 0;
-}
-
-int ff_http_match_no_proxy(const char *no_proxy, const char *hostname)
-{
-    char *buf, *start;
-    int ret = 0;
-    if (!no_proxy)
-        return 0;
-    if (!hostname)
-        return 0;
-    buf = av_strdup(no_proxy);
-    if (!buf)
-        return 0;
-    start = buf;
-    while (start) {
-        char *sep, *next = NULL;
-        start += strspn(start, " ,");
-        sep = start + strcspn(start, " ,");
-        if (*sep) {
-            next = sep + 1;
-            *sep = '\0';
-        }
-        if (match_host_pattern(start, hostname)) {
-            ret = 1;
-            break;
-        }
-        start = next;
-    }
-    av_free(buf);
-    return ret;
 }

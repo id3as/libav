@@ -27,6 +27,7 @@
 #include <stdint.h>
 
 #include "avcodec.h"
+#include "libavutil/internal.h"
 #include "libavutil/intreadwrite.h"
 #include "libavutil/channel_layout.h"
 #include "get_bits.h"
@@ -59,6 +60,8 @@ typedef struct SubStream {
     uint8_t     ch_assign[MAX_CHANNELS];
     /// The channel layout for this substream
     uint64_t    ch_layout;
+    /// The matrix encoding mode for this substream
+    enum AVMatrixEncoding matrix_encoding;
 
     /// Channel coding parameters for channels in the substream
     ChannelParams channel_params[MAX_CHANNELS];
@@ -373,6 +376,46 @@ static int read_major_sync(MLPDecodeContext *m, GetBitContext *gb)
         m->substream[substr].ch_layout = mh.channel_layout_thd_stream1;
     }
 
+    /* Parse the TrueHD decoder channel modifiers and set each substream's
+     * AVMatrixEncoding accordingly.
+     *
+     * The meaning of the modifiers depends on the channel layout:
+     *
+     * - THD_CH_MODIFIER_LTRT, THD_CH_MODIFIER_LBINRBIN only apply to 2-channel
+     *
+     * - THD_CH_MODIFIER_MONO applies to 1-channel or 2-channel (dual mono)
+     *
+     * - THD_CH_MODIFIER_SURROUNDEX, THD_CH_MODIFIER_NOTSURROUNDEX only apply to
+     *   layouts with an Ls/Rs channel pair
+     */
+    for (substr = 0; substr < MAX_SUBSTREAMS; substr++)
+        m->substream[substr].matrix_encoding = AV_MATRIX_ENCODING_NONE;
+    if (m->avctx->codec_id == AV_CODEC_ID_TRUEHD) {
+        if (mh.num_substreams > 2 &&
+            mh.channel_layout_thd_stream2 & AV_CH_SIDE_LEFT &&
+            mh.channel_layout_thd_stream2 & AV_CH_SIDE_RIGHT &&
+            mh.channel_modifier_thd_stream2 == THD_CH_MODIFIER_SURROUNDEX)
+            m->substream[2].matrix_encoding = AV_MATRIX_ENCODING_DOLBYEX;
+
+        if (mh.num_substreams > 1 &&
+            mh.channel_layout_thd_stream1 & AV_CH_SIDE_LEFT &&
+            mh.channel_layout_thd_stream1 & AV_CH_SIDE_RIGHT &&
+            mh.channel_modifier_thd_stream1 == THD_CH_MODIFIER_SURROUNDEX)
+            m->substream[1].matrix_encoding = AV_MATRIX_ENCODING_DOLBYEX;
+
+        if (mh.num_substreams > 0)
+            switch (mh.channel_modifier_thd_stream0) {
+            case THD_CH_MODIFIER_LTRT:
+                m->substream[0].matrix_encoding = AV_MATRIX_ENCODING_DOLBY;
+                break;
+            case THD_CH_MODIFIER_LBINRBIN:
+                m->substream[0].matrix_encoding = AV_MATRIX_ENCODING_DOLBYHEADPHONE;
+                break;
+            default:
+                break;
+            }
+    }
+
     return 0;
 }
 
@@ -389,9 +432,10 @@ static int read_restart_header(MLPDecodeContext *m, GetBitContext *gbp,
     uint8_t checksum;
     uint8_t lossless_check;
     int start_count = get_bits_count(gbp);
-    const int max_matrix_channel = m->avctx->codec_id == AV_CODEC_ID_MLP
-                                 ? MAX_MATRIX_CHANNEL_MLP
-                                 : MAX_MATRIX_CHANNEL_TRUEHD;
+    int min_channel, max_channel, max_matrix_channel;
+    const int std_max_matrix_channel = m->avctx->codec_id == AV_CODEC_ID_MLP
+                                     ? MAX_MATRIX_CHANNEL_MLP
+                                     : MAX_MATRIX_CHANNEL_TRUEHD;
 
     sync_word = get_bits(gbp, 13);
 
@@ -410,18 +454,18 @@ static int read_restart_header(MLPDecodeContext *m, GetBitContext *gbp,
 
     skip_bits(gbp, 16); /* Output timestamp */
 
-    s->min_channel        = get_bits(gbp, 4);
-    s->max_channel        = get_bits(gbp, 4);
-    s->max_matrix_channel = get_bits(gbp, 4);
+    min_channel        = get_bits(gbp, 4);
+    max_channel        = get_bits(gbp, 4);
+    max_matrix_channel = get_bits(gbp, 4);
 
-    if (s->max_matrix_channel > max_matrix_channel) {
+    if (max_matrix_channel > std_max_matrix_channel) {
         av_log(m->avctx, AV_LOG_ERROR,
                "Max matrix channel cannot be greater than %d.\n",
                max_matrix_channel);
         return AVERROR_INVALIDDATA;
     }
 
-    if (s->max_channel != s->max_matrix_channel) {
+    if (max_channel != max_matrix_channel) {
         av_log(m->avctx, AV_LOG_ERROR,
                "Max channel must be equal max matrix channel.\n");
         return AVERROR_INVALIDDATA;
@@ -437,13 +481,18 @@ static int read_restart_header(MLPDecodeContext *m, GetBitContext *gbp,
         return AVERROR_PATCHWELCOME;
     }
 
-    if (s->min_channel > s->max_channel) {
+    if (min_channel > max_channel) {
         av_log(m->avctx, AV_LOG_ERROR,
                "Substream min channel cannot be greater than max channel.\n");
         return AVERROR_INVALIDDATA;
     }
 
+    s->min_channel        = min_channel;
+    s->max_channel        = max_channel;
+    s->max_matrix_channel = max_matrix_channel;
+
 #if FF_API_REQUEST_CHANNELS
+FF_DISABLE_DEPRECATION_WARNINGS
     if (m->avctx->request_channels > 0 &&
         m->avctx->request_channels <= s->max_channel + 1 &&
         m->max_decoded_substream > substr) {
@@ -453,6 +502,7 @@ static int read_restart_header(MLPDecodeContext *m, GetBitContext *gbp,
                s->max_channel + 1, substr);
         m->max_decoded_substream = substr;
     } else
+FF_ENABLE_DEPRECATION_WARNINGS
 #endif
     if (m->avctx->request_channel_layout == s->ch_layout &&
         m->max_decoded_substream > substr) {
@@ -1011,6 +1061,10 @@ static int output_data(MLPDecodeContext *m, unsigned int substr,
         }
     }
 
+    /* Update matrix encoding side data */
+    if ((ret = ff_side_data_update_matrix_encoding(frame, s->matrix_encoding)) < 0)
+        return ret;
+
     *got_frame_ptr = 1;
 
     return 0;
@@ -1218,24 +1272,24 @@ error:
 
 AVCodec ff_mlp_decoder = {
     .name           = "mlp",
+    .long_name      = NULL_IF_CONFIG_SMALL("MLP (Meridian Lossless Packing)"),
     .type           = AVMEDIA_TYPE_AUDIO,
     .id             = AV_CODEC_ID_MLP,
     .priv_data_size = sizeof(MLPDecodeContext),
     .init           = mlp_decode_init,
     .decode         = read_access_unit,
     .capabilities   = CODEC_CAP_DR1,
-    .long_name      = NULL_IF_CONFIG_SMALL("MLP (Meridian Lossless Packing)"),
 };
 
 #if CONFIG_TRUEHD_DECODER
 AVCodec ff_truehd_decoder = {
     .name           = "truehd",
+    .long_name      = NULL_IF_CONFIG_SMALL("TrueHD"),
     .type           = AVMEDIA_TYPE_AUDIO,
     .id             = AV_CODEC_ID_TRUEHD,
     .priv_data_size = sizeof(MLPDecodeContext),
     .init           = mlp_decode_init,
     .decode         = read_access_unit,
     .capabilities   = CODEC_CAP_DR1,
-    .long_name      = NULL_IF_CONFIG_SMALL("TrueHD"),
 };
 #endif /* CONFIG_TRUEHD_DECODER */

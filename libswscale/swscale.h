@@ -23,6 +23,7 @@
 
 /**
  * @file
+ * @ingroup libsws
  * @brief
  *     external api for the swscale stuff
  */
@@ -35,6 +36,9 @@
 #include "version.h"
 
 /**
+ * @defgroup libsws Color conversion and scaling
+ * @{
+ *
  * Return the LIBSWSCALE_VERSION_INT constant.
  */
 unsigned swscale_version(void);
@@ -139,6 +143,13 @@ int sws_isSupportedInput(enum AVPixelFormat pix_fmt);
  * otherwise.
  */
 int sws_isSupportedOutput(enum AVPixelFormat pix_fmt);
+
+/**
+ * @param[in]  pix_fmt the pixel format
+ * @return a positive value if an endianness conversion for pix_fmt is
+ * supported, 0 otherwise.
+ */
+int sws_isSupportedEndiannessConversion(enum AVPixelFormat pix_fmt);
 
 /**
  * Allocate an empty SwsContext. This must be filled and passed to
@@ -335,5 +346,9 @@ void sws_convertPalette8ToPacked24(const uint8_t *src, uint8_t *dst, int num_pix
  * @see av_opt_find().
  */
 const AVClass *sws_get_class(void);
+
+/**
+ * @}
+ */
 
 #endif /* SWSCALE_SWSCALE_H */

@@ -22,9 +22,6 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-//#define TRACE
-//#define DEBUG
-
 #include "libavutil/imgutils.h"
 #include "avcodec.h"
 #include "get_bits.h"
@@ -350,9 +347,9 @@ static int dnxhd_decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
         first_field = 1;
     }
 
-    if (av_image_check_size(ctx->width, ctx->height, 0, avctx))
-        return -1;
-    avcodec_set_dimensions(avctx, ctx->width, ctx->height);
+    ret = ff_set_dimensions(avctx, ctx->width, ctx->height);
+    if (ret < 0)
+        return ret;
 
     if (first_field) {
         if ((ret = ff_get_buffer(avctx, picture, 0)) < 0) {
@@ -388,6 +385,7 @@ static av_cold int dnxhd_decode_close(AVCodecContext *avctx)
 
 AVCodec ff_dnxhd_decoder = {
     .name           = "dnxhd",
+    .long_name      = NULL_IF_CONFIG_SMALL("VC3/DNxHD"),
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_DNXHD,
     .priv_data_size = sizeof(DNXHDContext),
@@ -395,5 +393,4 @@ AVCodec ff_dnxhd_decoder = {
     .close          = dnxhd_decode_close,
     .decode         = dnxhd_decode_frame,
     .capabilities   = CODEC_CAP_DR1,
-    .long_name      = NULL_IF_CONFIG_SMALL("VC3/DNxHD"),
 };

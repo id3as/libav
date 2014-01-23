@@ -49,14 +49,14 @@ typedef struct {
 
 static av_cold int init(AVFilterContext *ctx)
 {
-    FormatContext *format = ctx->priv;
+    FormatContext *s = ctx->priv;
     const char *cur, *sep;
     char             pix_fmt_name[AV_PIX_FMT_NAME_MAXSIZE];
     int              pix_fmt_name_len;
     enum AVPixelFormat pix_fmt;
 
     /* parse the list of formats */
-    for (cur = format->pix_fmts; cur; cur = sep ? sep + 1 : NULL) {
+    for (cur = s->pix_fmts; cur; cur = sep ? sep + 1 : NULL) {
         if (!(sep = strchr(cur, '|')))
             pix_fmt_name_len = strlen(cur);
         else
@@ -75,23 +75,25 @@ static av_cold int init(AVFilterContext *ctx)
             return -1;
         }
 
-        format->listed_pix_fmt_flags[pix_fmt] = 1;
+        s->listed_pix_fmt_flags[pix_fmt] = 1;
     }
 
     return 0;
 }
 
-static AVFilterFormats *make_format_list(FormatContext *format, int flag)
+static AVFilterFormats *make_format_list(FormatContext *s, int flag)
 {
-    AVFilterFormats *formats;
+    AVFilterFormats *formats = NULL;
     enum AVPixelFormat pix_fmt;
 
-    formats = av_mallocz(sizeof(AVFilterFormats));
-    formats->formats = av_malloc(sizeof(enum AVPixelFormat) * AV_PIX_FMT_NB);
-
     for (pix_fmt = 0; pix_fmt < AV_PIX_FMT_NB; pix_fmt++)
-        if (format->listed_pix_fmt_flags[pix_fmt] == flag)
-            formats->formats[formats->format_count++] = pix_fmt;
+        if (s->listed_pix_fmt_flags[pix_fmt] == flag) {
+            int ret = ff_add_format(&formats, pix_fmt);
+            if (ret < 0) {
+                ff_formats_unref(&formats);
+                return NULL;
+            }
+        }
 
     return formats;
 }
@@ -133,7 +135,7 @@ static const AVFilterPad avfilter_vf_format_outputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_vf_format = {
+AVFilter ff_vf_format = {
     .name      = "format",
     .description = NULL_IF_CONFIG_SMALL("Convert the input video to one of the specified pixel formats."),
 
@@ -180,7 +182,7 @@ static const AVFilterPad avfilter_vf_noformat_outputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_vf_noformat = {
+AVFilter ff_vf_noformat = {
     .name      = "noformat",
     .description = NULL_IF_CONFIG_SMALL("Force libavfilter not to use any of the specified pixel formats for the input to the next filter."),
 

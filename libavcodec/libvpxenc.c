@@ -30,6 +30,7 @@
 
 #include "avcodec.h"
 #include "internal.h"
+#include "libvpx.h"
 #include "libavutil/base64.h"
 #include "libavutil/common.h"
 #include "libavutil/mathematics.h"
@@ -353,7 +354,7 @@ static av_cold int vpx_init(AVCodecContext *avctx,
     vpx_img_wrap(&ctx->rawimg, VPX_IMG_FMT_I420, avctx->width, avctx->height, 1,
                  (unsigned char*)1);
 
-    avctx->coded_frame = avcodec_alloc_frame();
+    avctx->coded_frame = av_frame_alloc();
     if (!avctx->coded_frame) {
         av_log(avctx, AV_LOG_ERROR, "Error allocating coded frame\n");
         vp8_free(avctx);
@@ -467,11 +468,13 @@ static int queue_frames(AVCodecContext *avctx, AVPacket *pkt_out,
             break;
         case VPX_CODEC_STATS_PKT: {
             struct vpx_fixed_buf *stats = &ctx->twopass_stats;
-            stats->buf = av_realloc(stats->buf,
-                                    stats->sz + pkt->data.twopass_stats.sz);
-            if (!stats->buf) {
+            int err;
+            if ((err = av_reallocp(&stats->buf,
+                                   stats->sz +
+                                   pkt->data.twopass_stats.sz)) < 0) {
+                stats->sz = 0;
                 av_log(avctx, AV_LOG_ERROR, "Stat buffer realloc failed\n");
-                return AVERROR(ENOMEM);
+                return err;
             }
             memcpy((uint8_t*)stats->buf + stats->sz,
                    pkt->data.twopass_stats.buf, pkt->data.twopass_stats.sz);
@@ -588,6 +591,7 @@ static const AVClass class_vp8 = {
 
 AVCodec ff_libvpx_vp8_encoder = {
     .name           = "libvpx",
+    .long_name      = NULL_IF_CONFIG_SMALL("libvpx VP8"),
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_VP8,
     .priv_data_size = sizeof(VP8Context),
@@ -596,7 +600,6 @@ AVCodec ff_libvpx_vp8_encoder = {
     .close          = vp8_free,
     .capabilities   = CODEC_CAP_DELAY | CODEC_CAP_AUTO_THREADS,
     .pix_fmts       = (const enum AVPixelFormat[]){ AV_PIX_FMT_YUV420P, AV_PIX_FMT_NONE },
-    .long_name      = NULL_IF_CONFIG_SMALL("libvpx VP8"),
     .priv_class     = &class_vp8,
     .defaults       = defaults,
 };
@@ -605,6 +608,9 @@ AVCodec ff_libvpx_vp8_encoder = {
 #if CONFIG_LIBVPX_VP9_ENCODER
 static av_cold int vp9_init(AVCodecContext *avctx)
 {
+    int ret;
+    if ((ret = ff_vp9_check_experimental(avctx)))
+        return ret;
     return vpx_init(avctx, &vpx_codec_vp9_cx_algo);
 }
 
@@ -617,15 +623,15 @@ static const AVClass class_vp9 = {
 
 AVCodec ff_libvpx_vp9_encoder = {
     .name           = "libvpx-vp9",
+    .long_name      = NULL_IF_CONFIG_SMALL("libvpx VP9"),
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_VP9,
     .priv_data_size = sizeof(VP8Context),
     .init           = vp9_init,
     .encode2        = vp8_encode,
     .close          = vp8_free,
-    .capabilities   = CODEC_CAP_DELAY | CODEC_CAP_AUTO_THREADS | CODEC_CAP_EXPERIMENTAL,
+    .capabilities   = CODEC_CAP_DELAY | CODEC_CAP_AUTO_THREADS,
     .pix_fmts       = (const enum AVPixelFormat[]){ AV_PIX_FMT_YUV420P, AV_PIX_FMT_NONE },
-    .long_name      = NULL_IF_CONFIG_SMALL("libvpx VP9"),
     .priv_class     = &class_vp9,
     .defaults       = defaults,
 };

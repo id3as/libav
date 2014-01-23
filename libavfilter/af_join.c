@@ -186,7 +186,7 @@ static int parse_maps(AVFilterContext *ctx)
     return 0;
 }
 
-static int join_init(AVFilterContext *ctx)
+static av_cold int join_init(AVFilterContext *ctx)
 {
     JoinContext *s = ctx->priv;
     int ret, i;
@@ -234,7 +234,7 @@ fail:
     return ret;
 }
 
-static void join_uninit(AVFilterContext *ctx)
+static av_cold void join_uninit(AVFilterContext *ctx)
 {
     JoinContext *s = ctx->priv;
     int i;
@@ -509,7 +509,7 @@ static const AVFilterPad avfilter_af_join_outputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_af_join = {
+AVFilter ff_af_join = {
     .name           = "join",
     .description    = NULL_IF_CONFIG_SMALL("Join multiple audio streams into "
                                            "multi-channel output"),
@@ -522,4 +522,6 @@ AVFilter avfilter_af_join = {
 
     .inputs  = NULL,
     .outputs = avfilter_af_join_outputs,
+
+    .flags   = AVFILTER_FLAG_DYNAMIC_INPUTS,
 };
