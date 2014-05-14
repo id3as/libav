@@ -76,6 +76,8 @@ struct frame_buffer
   uint32_t write_idx;
   uint32_t chunk_size;
   AVRational time_base;
+
+  int64_t pts_diff;
 };
 
 static struct encoder_frame *read_frame(bufstream_tt *bs)
@@ -84,7 +86,7 @@ static struct encoder_frame *read_frame(bufstream_tt *bs)
   uint32_t idx = p->read_idx;
 
   if (p->frames[idx].populated) {
-    
+
     p->read_idx = (p->read_idx + 1) % NUM_FRAMES;
     p->frames[idx].populated = 0;
     return &(p->frames[idx]);
@@ -145,7 +147,7 @@ static uint32_t fw_chunksize(bufstream_tt *bs)
   struct frame_buffer* p = (struct frame_buffer*) bs->Buf_IO_struct;
   return p->chunk_size;
 }
-  
+
 
 static uint32_t fw_auxinfo(bufstream_tt *bs, uint32_t offs, uint32_t info_ID, void *info_ptr, uint32_t info_size)
 {
@@ -169,11 +171,11 @@ static uint32_t fw_auxinfo(bufstream_tt *bs, uint32_t offs, uint32_t info_ID, vo
       }
       break;
 
-    case STATISTIC_INFO: 
+    case STATISTIC_INFO:
       {
         __attribute__((__unused__)) struct encode_stat_struct *stats = (struct encode_stat_struct*)info_ptr;
       }
-      break; 
+      break;
 
     case CPB_FULLNESS:
       {
@@ -219,13 +221,17 @@ static uint32_t fw_auxinfo(bufstream_tt *bs, uint32_t offs, uint32_t info_ID, vo
 
 	int64_t encoder_pts = av_rescale_q(au->PTS, TWENTY_SEVEN_MHZ, p->time_base);
 	int64_t encoder_dts = av_rescale_q(au->DTS, TWENTY_SEVEN_MHZ, p->time_base);
-	int64_t original_pts = p->frames[p->write_idx].original_pts;
-	int64_t pts_diff = original_pts - encoder_pts;
+        int64_t original_pts = p->frames[p->write_idx].original_pts;
+
+        if (p->pts_diff == -1)
+          {
+            p->pts_diff = original_pts - encoder_pts;
+          }
 
 	p->frames[p->write_idx].flags = au->flags;
 	p->frames[p->write_idx].type = au->type;
 	p->frames[p->write_idx].pts = original_pts;
-	p->frames[p->write_idx].dts = encoder_dts + pts_diff;
+	p->frames[p->write_idx].dts = encoder_dts + p->pts_diff;
       }
       break;
 
@@ -276,6 +282,7 @@ static int32_t init_mem_buf_write(bufstream_tt *bs, AVRational time_base)
   p->read_idx = 0;
   p->chunk_size = BUFFER_SIZE / 2;
   p->time_base = time_base;
+  p->pts_diff = -1;
 
   for (int i = 0; i < NUM_FRAMES; i++) {
     p->frames[i].populated = 0;
@@ -416,7 +423,7 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
 
   if (frame == NULL)
     {
-      if (!context->done) 
+      if (!context->done)
 	{
 	  vc1OutVideoDone(context->v_encoder, 0);
 	  context->done = 1;
@@ -434,33 +441,33 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
       int size = y_plane_size + uv_plane_size + uv_plane_size;
       uint8_t *b = malloc(size);
       struct sample_info_struct si;
-      
+
       ext_info_stack[0] = &si;
       si.flags = 0;
       si.mode = 0;
       si.rtStart = av_rescale_q(frame->pts, ctx->time_base, ONE_HUNDRED_NANOS);
-      si.rtStop = si.rtStart + (10000000 / context->v_settings->frame_rate);   
-      
+      si.rtStop = si.rtStart + (10000000 / context->v_settings->frame_rate);
+
       // Y Plane
       for (int i = 0; i < ctx->height; i++) {
 	memcpy(b + (i * ctx->width), frame->data[0] + (frame->linesize[0] * i), ctx->width);
       }
-      
+
       // U Plane
       for (int i = 0; i < half_height; i++) {
 	memcpy(b + y_plane_size + (i * half_width), frame->data[1] + (frame->linesize[1] * i), half_width);
       }
-      
+
       // V Plane
       for (int i = 0; i < half_height; i++) {
 	memcpy(b + y_plane_size + uv_plane_size + (i * half_width), frame->data[2] + (frame->linesize[2] * i), half_width);
       }
-      
+
       if (vc1OutVideoPutFrame(context->v_encoder, b, ctx->width, ctx->width, ctx->height, FOURCC_I420, option_flags, ext_info) == VC1ERROR_FAILED)
 	{
 	  exit(1);
 	}
-      
+
       free(b);
     }
 
@@ -482,7 +489,7 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
   v_frame.src[2].height = ctx->height >> 1;
   v_frame.src[2].stride = frame->linesize[2];
   v_frame.src[2].plane = frame->data[2];
-  
+
   if (vc1OutVideoPutFrameV(context->v_encoder, &v_frame, option_flags, ext_info) == VC1ERROR_FAILED)
     {
       printf("It failed\n");
@@ -491,13 +498,13 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
   */
 
   encoded_frame = read_frame(context->videobs);
-  
+
   if (encoded_frame) {
 
     ff_alloc_packet(pkt, encoded_frame->data_size);
-    
+
     memcpy(pkt->data, encoded_frame->bfr, encoded_frame->data_size);
-    
+
     pkt->pts = encoded_frame->pts;
     pkt->dts = encoded_frame->dts;
     pkt->duration = 1;
@@ -505,9 +512,9 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
     if (encoded_frame->type == I_TYPE) {
       pkt->flags |= AV_PKT_FLAG_KEY;
     }
-    
+
     *got_packet = 1;
-  } 
+  }
   else
     {
       *got_packet = 0;
@@ -518,7 +525,7 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
  static av_cold int VC1_close(AVCodecContext *avctx)
  {
   //VC1Context *context = avctx->priv_data;
-  
+
    av_freep(&avctx->extradata);
 
   return 0;
@@ -527,7 +534,7 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
  static av_cold int VC1_init(AVCodecContext *avctx)
  {
   VC1Context *context = avctx->priv_data;
-  
+
   int init_options = 0;
   void * opt_list[10];
   int video_format;
@@ -564,9 +571,9 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
   }
 
   context->v_settings = &context->param_set.params;
-  
+
   vc1OutVideoDefaults(context->v_settings, video_type, video_format);
-  
+
   context->v_settings->profile_id 		= profile;
   context->v_settings->level_id 		= avctx->level;
   context->v_settings->key_frame_interval       = avctx->gop_size >= 0 ? avctx->gop_size : context->v_settings->key_frame_interval;
@@ -589,12 +596,12 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
   context->v_encoder = vc1OutVideoNew(get_rc, context->v_settings, 0, 0xFFFFFFFF, 0, 0);
 
   context->videobs = open_mem_buf_write(avctx->time_base);
-  
+
   if(vc1OutVideoInit(context->v_encoder, context->videobs, init_options, &opt_list[0]))
     {
       fprintf(stderr, "vc1OutVideoInit failed\n");
       exit(1);
-    }      
+    }
 
   if (vc1OutVideoGetParSets(context->v_encoder,
 			    context->v_settings,
@@ -657,7 +664,7 @@ AVCodec ff_libmcvc1_encoder = {
   .long_name        = NULL_IF_CONFIG_SMALL("Main Concept VC1"),
   .priv_class       = &class,
   .defaults         = VC1_defaults,
-  .init_static_data = VC1_init_static,    
+  .init_static_data = VC1_init_static,
   .pix_fmts     = (const enum AVPixelFormat[]) { AV_PIX_FMT_YUV420P, AV_PIX_FMT_NONE}
-  
+
 };
