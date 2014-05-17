@@ -582,7 +582,7 @@ static int VC1_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
   context->v_settings->interlace_mode           = avctx->flags & CODEC_FLAG_INTERLACED_DCT ? VC1_INTERLACE_MBAFF : VC1_PROGRESSIVE;
   context->v_settings->def_horizontal_size      = avctx->width;
   context->v_settings->def_vertical_size        = avctx->height;
-  context->v_settings->frame_rate               = avctx->time_base.den / avctx->time_base.num;
+  context->v_settings->frame_rate               = ((double) avctx->time_base.den) / avctx->time_base.num;
   context->v_settings->bit_rate                 = avctx->bit_rate >= 0 ? avctx->bit_rate : context->v_settings->bit_rate;
   context->v_settings->max_bit_rate             = avctx->rc_max_rate >= 0 ? avctx->rc_max_rate : context->v_settings->bit_rate * 1.1;
   context->v_settings->bit_rate_mode            = VC1_VBR;
